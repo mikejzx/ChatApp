@@ -203,5 +203,16 @@ namespace Mikejzx.ChatClient
             btnConnect.Enabled = false;
             m_Client.Connect();
         }
+
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+
+        private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            ChatClientAboutBox about = new ChatClientAboutBox();
+            about.ShowDialog();
+        }
     }
 }
