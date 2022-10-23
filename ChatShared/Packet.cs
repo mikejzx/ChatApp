@@ -13,20 +13,23 @@ namespace Mikejzx.ChatShared
         // Client sends message to a user.
         ClientDirectMessage,
 
-        // Server is sending us an error
+        // Server sending us an error
         ServerError,
 
-        // Server allows client into the server.
+        // Server allows a client into the server.
         ServerWelcome,
 
-        // Server is sending a client the most recent client list.
+        // Server sending a client the most recent client list.
         ServerClientList,
 
-        // Server informing us that a client joined the server
+        // Server informing that a client joined the server
         ServerClientJoin,
 
-        // Server informing us that a client left the server
+        // Server informing that a client left the server
         ServerClientLeave,
+
+        // Server informing that a message was received.
+        ServerDirectMessageReceived,
     }
 
     public enum PacketErrorCode : uint

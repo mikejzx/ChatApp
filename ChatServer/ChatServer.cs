@@ -21,6 +21,7 @@ namespace Mikejzx.ChatServer
         // Sync objects
         private readonly object clientSync = new object();
 
+        // Get number of clients that are in the server.
         public int ClientCount
         {
             get
@@ -30,7 +31,29 @@ namespace Mikejzx.ChatServer
             }
         }
 
-        public IDictionaryEnumerator ClientEnumerator { get => m_Clients.GetEnumerator();  }
+        // Enumerate client list
+        public void EnumerateClients(Action<ChatServerClient> action)
+        {
+            lock(clientSync)
+            {
+                foreach (ChatServerClient client in m_Clients.Values)
+                {
+                    action.Invoke(client);
+                }
+            }
+        }
+
+        // Get client by name.
+        public ChatServerClient? GetClient(string nickname)
+        {
+            lock (clientSync)
+            {
+                if (!m_Clients.ContainsKey(nickname))
+                    return null;
+
+                return m_Clients[nickname];
+            }
+        }
 
         public void Cleanup()
         {

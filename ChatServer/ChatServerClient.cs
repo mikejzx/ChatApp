@@ -10,7 +10,7 @@ using Mikejzx.ChatShared;
 
 namespace Mikejzx.ChatServer
 {
-    internal class ChatServerClient
+    public class ChatServerClient
     {
         private ChatServer m_Server;
         private TcpClient m_Tcp;
@@ -62,12 +62,39 @@ namespace Mikejzx.ChatServer
 
                     break;
 
-                // Client is sending a private message to a user.
+                // Client is sending a direct message to a user.
                 case PacketType.ClientDirectMessage:
-                    string recipient = packet.ReadString();
+                    string recipientName = packet.ReadString();
                     string msg = packet.ReadString();
 
-                    Console.WriteLine($"{Nickname} sends '{msg}' to '{recipient}'");
+                    Console.WriteLine($"{Nickname} --> {recipientName}: {msg}");
+
+                    // Send message to both the clients.
+                    using (Packet packet2 = new Packet(PacketType.ServerDirectMessageReceived))
+                    {
+                        packet2.Write(Nickname);
+                        packet2.Write(recipientName);
+                        packet2.Write(msg);
+
+                        // Send to recipient
+                        ChatServerClient? recipient = m_Server.GetClient(recipientName);
+                        if (recipient is not null)
+                        {
+                            lock (recipient.sendSync)
+                            {
+                                packet2.WriteToStream(recipient.Writer);
+                                recipient.Writer.Flush();
+                            }
+                        }
+
+                        // Send to the sender to indicate that their message was sent.
+                        lock(sendSync)
+                        {
+                            packet2.WriteToStream(Writer);
+                            Writer.Flush();
+                        }
+                    }
+
                     break;
             }
         }
@@ -136,16 +163,11 @@ namespace Mikejzx.ChatServer
                 {
                     packet.Write(m_Server.ClientCount);
 
-                    IDictionaryEnumerator clientEnum = m_Server.ClientEnumerator;
-                    while (clientEnum.MoveNext())
+                    // Write client nick names
+                    m_Server.EnumerateClients((ChatServerClient client) =>
                     {
-                        if (clientEnum.Value is null)
-                            continue;
-
-                        ChatServerClient client = (ChatServerClient)clientEnum.Value;
-
                         packet.Write(client.Nickname);
-                    }
+                    });
 
                     lock (sendSync)
                     {
