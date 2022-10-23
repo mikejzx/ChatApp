@@ -22,8 +22,8 @@ namespace Mikejzx.ChatClient
             // Initialise application with the login form.
             ApplicationConfiguration.Initialize();
 
-            chatForm = new ChatClientForm();
             client = new ChatClient("", ChatConstants.ServerPort);
+            chatForm = new ChatClientForm(client);
             loginForm = new ChatClientLoginForm(client, chatForm);
             client.Form = loginForm;
 

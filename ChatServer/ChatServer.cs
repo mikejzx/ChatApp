@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -17,14 +18,31 @@ namespace Mikejzx.ChatServer
 
         private static readonly string CertificatePath = "cert.pfx";
 
+        // Sync objects
+        private readonly object clientSync = new object();
+
+        public int ClientCount
+        {
+            get
+            {
+                lock (clientSync)
+                    return m_Clients.Count;
+            }
+        }
+
+        public IDictionaryEnumerator ClientEnumerator { get => m_Clients.GetEnumerator();  }
+
         public void Cleanup()
         {
             Console.WriteLine("Shutting down the server ...");
 
             // Cleanup client connections
-            foreach (ChatServerClient client in m_Clients.Values)
+            lock (clientSync)
             {
-                client.Disconnect();
+                foreach (ChatServerClient client in m_Clients.Values)
+                {
+                    client.Disconnect();
+                }
             }
         }
 
@@ -58,11 +76,11 @@ namespace Mikejzx.ChatServer
                 return;
             }
 
+            Console.WriteLine($"Server is listening on 127.0.0.1:{ChatConstants.ServerPort}");
+
             // Listen for incoming connections.
             while(true)
             {
-                Console.WriteLine("Listening ...");
-
                 TcpClient client = listener.AcceptTcpClient();
                 ProcessClient(client);
             }
@@ -75,22 +93,20 @@ namespace Mikejzx.ChatServer
                 return;
 
             // Client connected--create the SslStream.
-            Console.WriteLine("Performing TLS handshake ...");
             SslStream sslStream = new SslStream(tcpClient.GetStream(),
                                                 leaveInnerStreamOpen: false);
 
             // Authenticate server (but don't require client to authenticate).
             try
             {
-                Console.WriteLine("Authenticating ...");
                 sslStream.AuthenticateAsServer(m_Certificate,
                                                clientCertificateRequired: false,
                                                enabledSslProtocols: SslProtocols.Tls,
                                                checkCertificateRevocation: true);
 
                 // Set timeouts
-                sslStream.ReadTimeout = 5000;
-                sslStream.WriteTimeout = 5000;
+                sslStream.ReadTimeout = System.Threading.Timeout.Infinite;
+                sslStream.WriteTimeout = System.Threading.Timeout.Infinite;
 
                 // Start client thread.
                 ChatServerClient client = new ChatServerClient(tcpClient, sslStream, this);
@@ -109,28 +125,26 @@ namespace Mikejzx.ChatServer
             }
         }
 
-        // Send current client list to a client.
-        internal void SendClientList(ChatServerClient client)
-        {
-            client.Writer.Write((uint)ChatPacketType.ServerClientList);
-            client.Writer.Write((uint)m_Clients.Count);
-            foreach (ChatServerClient client2 in m_Clients.Values)
-            {
-                client.Writer.Write(client2.Nickname);
-            }
-        }
-
         internal void AddClient(ChatServerClient client)
         {
-            lock(m_Clients)
+            lock(clientSync)
             {
-                m_Clients.Add(client.Nickname, client);
-
-                // For each client currently in the server, we send the current client list.
-                foreach (ChatServerClient client2 in m_Clients.Values)
+                // Send join message to all other clients.
+                using (Packet packet = new Packet(PacketType.ServerClientJoin))
                 {
-                    SendClientList(client2);
+                    packet.Write(client.Nickname);
+
+                    foreach (ChatServerClient client2 in m_Clients.Values)
+                    {
+                        lock(client2.sendSync)
+                        {
+                            packet.WriteToStream(client2.Writer);
+                            client2.Writer.Flush();
+                        }
+                    }
                 }
+                
+                m_Clients.Add(client.Nickname, client);
             }
 
             Console.WriteLine($"{client.Nickname} joined the server.");
@@ -138,9 +152,29 @@ namespace Mikejzx.ChatServer
 
         internal bool RemoveClient(ChatServerClient client)
         {
-            lock(m_Clients)
+            lock(clientSync)
             {
-                return m_Clients.Remove(client.Nickname);
+                bool rc = m_Clients.Remove(client.Nickname);
+
+                if (rc)
+                    Console.WriteLine($"{client.Nickname} left the server.");
+
+                // Send leave message to all other clients.
+                using (Packet packet = new Packet(PacketType.ServerClientLeave))
+                {
+                    packet.Write(client.Nickname);
+
+                    foreach (ChatServerClient client2 in m_Clients.Values)
+                    {
+                        lock(client2.sendSync)
+                        {
+                            packet.WriteToStream(client2.Writer);
+                            client2.Writer.Flush();
+                        }
+                    }
+                }
+
+                return rc;
             }
         }
 
@@ -150,7 +184,7 @@ namespace Mikejzx.ChatServer
                 return false;
 
             // Ensure the nickname is not already taken.
-            lock(m_Clients)
+            lock(clientSync)
             {
                 foreach (ChatServerClient client in m_Clients.Values)
                 {

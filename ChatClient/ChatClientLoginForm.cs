@@ -25,7 +25,7 @@ namespace Mikejzx.ChatClient
                 SetLoggingIn(false);
             };
 
-            m_Client.OnConnectionFail += (string msg) => 
+            m_Client.OnError += (string msg) => 
             {
                 // Show the error message.
                 MessageBox.Show($"{msg}", "An error occurred.", 

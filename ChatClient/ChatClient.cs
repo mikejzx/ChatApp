@@ -8,13 +8,15 @@ namespace Mikejzx.ChatClient
 {
     public class ChatClient
     {
-        private string m_Nickname = "";
-
+        // The nickname of the client.
+        private string m_Nickname = string.Empty;
         public string Nickname { get => m_Nickname; set => m_Nickname = value; }
 
-        private string m_Hostname = "";
+        // The hostname the client is connecting to.
+        private string m_Hostname = string.Empty;
         public string Hostname { get => m_Hostname; set => m_Hostname = value; }
 
+        // Port of server to connect to.
         private int m_Port;
         public int Port { get => m_Port; set => m_Port = value; }
 
@@ -23,10 +25,16 @@ namespace Mikejzx.ChatClient
         private BinaryReader? m_Reader;
         private BinaryWriter? m_Writer;
 
-        private List<string> m_Clients = new List<string>();
+        // List of clients that are connected to the server.
+        private HashSet<string> m_Clients = new HashSet<string>();
 
+        // User we are chatting with.
+        private string? m_Recipient = null;
+
+        // Callbacks
         public Action? OnConnectionSuccess;
-        public Action<string>? OnConnectionFail;
+        public Action<string>? OnError;
+        public Action<HashSet<string>>? OnClientListUpdate;
 
         private bool m_InServer = false;
 
@@ -36,12 +44,33 @@ namespace Mikejzx.ChatClient
         private Form? m_Form;
         public Form? Form { get => m_Form; set => m_Form = value; }
 
+        private readonly object m_ThreadStopSync = new object();
+
         public ChatClient(string nickname, int port)
         {
             Nickname = nickname;
             Port = port;
             m_InServer = false;
-            m_StopThread = false;
+            m_Recipient = null;
+
+            lock(m_ThreadStopSync)
+                m_StopThread = false;
+        }
+
+        // Set the current chat recipient
+        public void SetRecipient(string nickname)
+        {
+            // Can't chat with ourselves
+            if (nickname == Nickname)
+                return;
+
+            if (!m_Clients.Contains(nickname))
+            {
+                MessageBox.Show($"User {nickname} is not in the server.");
+                return;
+            }
+
+            m_Recipient = nickname;
         }
 
         private void Cleanup()
@@ -72,7 +101,9 @@ namespace Mikejzx.ChatClient
 
             if (m_Thread is not null)
             {
-                m_StopThread = true;
+                lock(m_ThreadStopSync)
+                    m_StopThread = true;
+
                 m_Thread.Join();
             }
 
@@ -83,15 +114,21 @@ namespace Mikejzx.ChatClient
         {
             // Send disconnetion message.
             if (m_Writer is not null)
-                m_Writer.Write((UInt32)ChatPacketType.ClientDisconnect);
+            {
+                using (Packet packet = new Packet(PacketType.ClientDisconnect))
+                {
+                    packet.WriteToStream(m_Writer);
+                    m_Writer.Flush();
+                }
+            }
 
             Cleanup();
         }
 
         private void ShowError(string msg)
         {
-            if (Form is not null && OnConnectionFail is not null)
-                Form.Invoke(OnConnectionFail, msg);
+            if (Form is not null && OnError is not null)
+                Form.Invoke(OnError, msg);
         }
 
         // Establish connection to host.
@@ -106,6 +143,69 @@ namespace Mikejzx.ChatClient
         {
             // Trust all certificates.
             return true;
+        }
+
+        private void HandlePacket(Packet packet)
+        {
+            switch (packet.PacketType)
+            {
+                // Server welcomes us into the server.
+                case PacketType.ServerWelcome:
+                    m_InServer = true;
+
+                    if (Form is not null && OnConnectionSuccess is not null)
+                        Form.Invoke(OnConnectionSuccess);
+
+                    break;
+
+                // Server sends us an error message.
+                case PacketType.ServerError:
+                    PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
+                    string msg = packet.ReadString();
+                    ShowError(msg);
+                    break;
+
+                // Server sends us current client list.
+                case PacketType.ServerClientList:
+                    m_Clients.Clear();
+
+                    int count = packet.ReadInt32();
+
+                    for (int i = 0; i < count; ++i)
+                    {
+                        string nickname = packet.ReadString();
+                        m_Clients.Add(nickname);
+                    }    
+
+                    if (Form is not null && OnClientListUpdate is not null)
+                        Form.Invoke(OnClientListUpdate, m_Clients);
+
+                    break;
+
+                // Server tells us that a client joined
+                case PacketType.ServerClientJoin:
+                    // Read their nickname
+                    string joinedNickname = packet.ReadString();
+                    m_Clients.Add(joinedNickname);
+
+                    // Update display list
+                    if (Form is not null && OnClientListUpdate is not null)
+                        Form.Invoke(OnClientListUpdate, m_Clients);
+
+                    break;
+
+                // Server tells us that a client left
+                case PacketType.ServerClientLeave:
+                    // Read their nickname
+                    string leaveNickname = packet.ReadString();
+                    m_Clients.Remove(leaveNickname);
+
+                    // Update display list
+                    if (Form is not null && OnClientListUpdate is not null)
+                        Form.Invoke(OnClientListUpdate, m_Clients);
+
+                    break;
+            }
         }
 
         private void Run()
@@ -130,83 +230,65 @@ namespace Mikejzx.ChatClient
             options.TargetHost = Hostname;
             m_Stream.AuthenticateAsClient(options);
 
-            m_Stream.ReadTimeout = 5000;
-            m_Stream.WriteTimeout = 5000;
+            m_Stream.ReadTimeout = Timeout.Infinite;
+            m_Stream.WriteTimeout = Timeout.Infinite;
 
             m_Writer = new BinaryWriter(m_Stream, Encoding.UTF8);
             m_Reader = new BinaryReader(m_Stream, Encoding.UTF8);
 
             // Write the hello packet.
-            m_Writer.Write((uint)ChatPacketType.ClientHello);
-            m_Writer.Write(Nickname);
-
-            while (!m_StopThread)
+            using (Packet packet = new Packet(PacketType.ClientHello))
             {
+                packet.Write(Nickname);
+                packet.WriteToStream(m_Writer);
+            }
+
+            m_InServer = false;
+
+            while (true)
+            {
+                lock (m_ThreadStopSync)
+                {
+                    if (m_StopThread)
+                        break;
+                }
+
                 try
                 {
                     if (!m_Tcp.Connected)
                         break;
 
-                    if (m_Tcp.Available <= 0)
-                        continue;
+                    //if (!m_Tcp.GetStream().DataAvailable)
+                        //continue;
 
-                    ChatPacketType packet = (ChatPacketType)m_Reader.ReadUInt32();
+                    // Read next packet.
+                    Packet packet = new Packet(m_Reader);
 
                     // We are not "in" the server yet; so we only expect a ServerWelcome packet.
                     if (!m_InServer)
                     {
-                        if (packet == ChatPacketType.ServerError)
+                        if (packet.PacketType == PacketType.ServerError)
                         {
-                            ChatPacketErrorCode id = (ChatPacketErrorCode)m_Reader.ReadUInt32();
-                            string msg = m_Reader.ReadString();
+                            PacketErrorCode id = (PacketErrorCode)packet.ReadUInt32();
+                            string msg = packet.ReadString();
                             ShowError($"Server error {id}: {msg}");
                             return;
                         }
 
-                        if (packet != ChatPacketType.ServerWelcome)
+                        if (packet.PacketType != PacketType.ServerWelcome)
                         {
                             ShowError("Error: unexpected packet.");
                             return;
                         }
                     }
 
-                    switch (packet)
-                    {
-                        // Server says that we are welcome in the server.
-                        case (ChatPacketType.ServerWelcome):
-                            m_InServer = true;
-
-                            // Complete the connection.
-                            if (Form is not null && OnConnectionSuccess is not null)
-                                Form.Invoke(OnConnectionSuccess);
-
-                            break;
-
-                        // Server sends us the client list
-                        case (ChatPacketType.ServerClientList):
-                            // Clear the current client list.
-                            m_Clients.Clear();
-
-                            // Read number of clients
-                            uint count = m_Reader.ReadUInt32();
-
-                            // Read each client.
-                            for (int i = 0; i < count; ++i)
-                            {
-                                string name = m_Reader.ReadString();
-
-                                // Add to the new client list.
-                                m_Clients.Add(name);
-                            }
-
-                            break;
-                    }
+                    HandlePacket(packet);
                 }
-                catch (ObjectDisposedException)
+                catch (IOException)
                 {
                     return;
                 }
-                catch (ThreadAbortException)
+                catch (ObjectDisposedException)
                 {
                     return;
                 }
