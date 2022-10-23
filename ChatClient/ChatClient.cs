@@ -27,6 +27,7 @@ namespace Mikejzx.ChatClient
 
         // List of clients that are connected to the server.
         private Dictionary<string, ChatClientRecipient> m_Clients = new Dictionary<string, ChatClientRecipient>();
+        public Dictionary<string, ChatClientRecipient> Clients { get => m_Clients; }
 
         // User we are chatting with.
         private string? m_RecipientName = null;
@@ -35,25 +36,29 @@ namespace Mikejzx.ChatClient
             get => m_RecipientName;
             set
             {
-                if (value is not null)
+                // Can't chat with ourselves
+                if (value == Nickname)
                 {
-                    // Can't chat with ourselves
-                    if (value == Nickname)
-                        return;
-
-                    if (!m_Clients.ContainsKey(value))
-                    {
-                        MessageBox.Show($"User {value} is not in the server.");
-                        return;
-                    }
+                    m_RecipientName = null;
                 }
+                else
+                {
+                    if (value is not null)
+                    {
+                        if (!m_Clients.ContainsKey(value))
+                        {
+                            MessageBox.Show($"User {value} is not in the server.");
+                            return;
+                        }
+                    }
 
-                m_RecipientName = value;
+                    m_RecipientName = value;
+                }
 
                 if (m_Form is not null && OnRecipientChanged is not null)
                 {
                     if (m_RecipientName is null)
-                        m_Form.Invoke(OnRecipientChanged, null);
+                        m_Form.Invoke(OnRecipientChanged, (object?)null);
                     else
                         m_Form.Invoke(OnRecipientChanged, m_Clients[m_RecipientName]);
                 }
@@ -65,7 +70,7 @@ namespace Mikejzx.ChatClient
         public Action<string>? OnError;
         public Action<Dictionary<string, ChatClientRecipient>>? OnClientListUpdate;
         public Action<ChatClientRecipient?>? OnRecipientChanged;
-        public Action<string, ChatMessage>? OnMessageReceived;
+        public Func<string, ChatMessage, bool>? OnMessageReceived;
         public Action<ChatClientRecipient>? OnClientLeave;
         public Action<ChatClientRecipient>? OnClientJoin;
 
@@ -296,7 +301,20 @@ namespace Mikejzx.ChatClient
                     ChatMessage addedMessage = m_Clients[channel].AddMessage(sender, message);
 
                     if (Form is not null && OnMessageReceived is not null)
-                        Form.Invoke(OnMessageReceived, channel, addedMessage);
+                    {
+                        if (!(bool)Form.Invoke(OnMessageReceived, channel, addedMessage))
+                        {
+                            // Increment unread message count
+                            if (m_Clients.ContainsKey(channel))
+                            {
+                                ++m_Clients[channel].UnreadMessages;
+
+                                // Update the client list to show the unread messages.
+                                if (OnClientListUpdate is not null)
+                                    Form.Invoke(OnClientListUpdate, m_Clients);
+                            }
+                        }
+                    }
 
                     break;
             }

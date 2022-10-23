@@ -33,8 +33,8 @@
             this.btnSend = new System.Windows.Forms.Button();
             this.txtCompose = new System.Windows.Forms.TextBox();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
-            this.txtMessages = new System.Windows.Forms.RichTextBox();
-            this.lstClients = new System.Windows.Forms.ListView();
+            this.txtMessages = new ReadOnlyRichTextBox();
+            this.lstClients = new ClientListBox();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -116,24 +116,23 @@
             this.txtMessages.ShortcutsEnabled = false;
             this.txtMessages.Size = new System.Drawing.Size(531, 376);
             this.txtMessages.TabIndex = 6;
+            this.txtMessages.TabStop = false;
             this.txtMessages.Text = "";
             // 
             // lstClients
             // 
-            this.lstClients.Activation = System.Windows.Forms.ItemActivation.OneClick;
             this.lstClients.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
             | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
             this.lstClients.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lstClients.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.None;
+            this.lstClients.FormattingEnabled = true;
+            this.lstClients.ItemHeight = 15;
             this.lstClients.Location = new System.Drawing.Point(3, 18);
-            this.lstClients.MultiSelect = false;
             this.lstClients.Name = "lstClients";
-            this.lstClients.Size = new System.Drawing.Size(229, 376);
-            this.lstClients.TabIndex = 3;
-            this.lstClients.UseCompatibleStateImageBehavior = false;
-            this.lstClients.View = System.Windows.Forms.View.Details;
-            this.lstClients.ItemSelectionChanged += new System.Windows.Forms.ListViewItemSelectionChangedEventHandler(this.lstClients_ItemSelectionChanged);
+            this.lstClients.Size = new System.Drawing.Size(229, 377);
+            this.lstClients.Sorted = true;
+            this.lstClients.TabIndex = 2;
+            this.lstClients.SelectedIndexChanged += new System.EventHandler(this.lstClients_SelectedIndexChanged);
             // 
             // ChatClientForm
             // 
@@ -162,7 +161,7 @@
         private Button btnSend;
         private TextBox txtCompose;
         private SplitContainer splitContainer1;
-        private RichTextBox txtMessages;
-        private ListView lstClients;
+        private ReadOnlyRichTextBox txtMessages;
+        private ClientListBox lstClients;
     }
 }

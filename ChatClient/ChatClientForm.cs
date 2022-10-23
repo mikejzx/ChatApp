@@ -25,16 +25,12 @@ namespace Mikejzx.ChatClient
             txtCompose.Enabled = false;
             btnSend.Enabled = false;
 
+            // We display the DisplayString member of ChatClientRecipient.
+            lstClients.DisplayMember = "DisplayString";
+
             m_Client.OnClientListUpdate += (Dictionary<string, ChatClientRecipient> clients) =>
             {
-                // Update the client list control.
-                lstClients.Clear();
-                lstClients.Columns.Add("");
-
-                foreach (ChatClientRecipient client in clients.Values)
-                {
-                    lstClients.Items.Add(client.Nickname);
-                }
+                RefreshClientList(clients);
             };
 
             m_Client.OnRecipientChanged += (ChatClientRecipient? recipient) =>
@@ -49,6 +45,12 @@ namespace Mikejzx.ChatClient
                 }
                 else
                 {
+                    // Reset unread count.
+                    recipient.UnreadMessages = 0;
+
+                    // Refresh the client list to remove the unread messages.
+                    RefreshClientList(m_Client.Clients);
+
                     // Update titles.
                     lblHeading.Text = $"Chatting with {recipient.Nickname}";
 
@@ -75,7 +77,10 @@ namespace Mikejzx.ChatClient
                 if (m_Client.Recipient == channel)
                 {
                     txtMessages.Text += $"<{msg.sender}>: {msg.message}\n";
+                    return true;
                 }
+
+                return false;
             };
 
             m_Client.OnClientJoin += (ChatClientRecipient recipient) =>
@@ -99,18 +104,61 @@ namespace Mikejzx.ChatClient
             txtCompose.Focus();
         }
 
+        private void RefreshClientList(Dictionary<string, ChatClientRecipient> clients)
+        {
+            // Update the client list control.
+            lstClients.Items.Clear();
+            foreach (ChatClientRecipient client in clients.Values)
+            {
+                // Skip ourself
+                if (client.Nickname == m_Client.Nickname)
+                    continue;
+
+                // Add all other users.
+                lstClients.Items.Add(client);
+            }
+
+            if (m_Client.Recipient is null)
+            {
+                // No selected recipient.
+                lstClients.NoEvents = true;
+                lstClients.SelectedItem = null;
+                lstClients.NoEvents = false;
+            }
+            else
+            {
+                // Select the client we are chatting with.
+                foreach (ChatClientRecipient client in lstClients.Items)
+                {
+                    if (client.Nickname == m_Client.Recipient)
+                    {
+                        lstClients.NoEvents = true;
+                        lstClients.SelectedItem = client;
+                        lstClients.NoEvents = false;
+                        break;
+                    }
+                }
+            }
+        }
+
         private void ChatClientForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             Hide();
             Program.CheckForExit();
         }
 
-        private void lstClients_ItemSelectionChanged(object sender, ListViewItemSelectionChangedEventArgs e)
+        private void lstClients_SelectedIndexChanged(object sender, EventArgs e)
         {
-            string nickname = e.Item.Text;
-
-            // Set new recipient to chat with.
-            m_Client.Recipient = nickname;
+            if (lstClients.SelectedItem is null)
+            {
+                m_Client.Recipient = null;
+            }
+            else
+            {
+                // Set the new recipient.
+                ChatClientRecipient recipient = (ChatClientRecipient)lstClients.SelectedItem;
+                m_Client.Recipient = recipient.Nickname;
+            }
         }
 
         private void btnSend_Click(object sender, EventArgs e)

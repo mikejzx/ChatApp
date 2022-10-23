@@ -28,6 +28,34 @@ namespace Mikejzx.ChatClient
         // Whether the client is in the server currently.
         public bool isJoined;
 
+        // String displayed in listbox
+        public string DisplayString
+        {
+            get
+            {
+                if (isJoined)
+                {
+                    // Show unread count next to name
+                    if (UnreadMessages > 0)
+                        return $"({UnreadMessages}) {Nickname}";
+
+                    return Nickname;
+                }
+                else
+                {
+                    // Show unread count next to name
+                    if (UnreadMessages > 0)
+                        return $"({UnreadMessages}) {Nickname} (left)";
+
+                    return Nickname + " (left)";
+                }
+            }
+        }
+
+        // Number of messages that have been sent that we have not seen yet.
+        private int m_UnreadMessages = 0;
+        public int UnreadMessages { get => m_UnreadMessages; set => m_UnreadMessages = value; }
+
         // List of messages sent to the client.
         private List<ChatMessage> m_Messages = new List<ChatMessage>();
         public List<ChatMessage> Messages { get => m_Messages; }
@@ -37,6 +65,7 @@ namespace Mikejzx.ChatClient
             m_Nickname = nickname;
             m_Messages.Clear();
             isJoined = joined;
+            m_UnreadMessages = 0;
         }
 
         // Add message to the message history
