@@ -28,13 +28,15 @@
         /// </summary>
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.lblHeading = new System.Windows.Forms.Label();
             this.label2 = new System.Windows.Forms.Label();
             this.btnSend = new System.Windows.Forms.Button();
             this.txtCompose = new System.Windows.Forms.TextBox();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
-            this.txtMessages = new ReadOnlyRichTextBox();
-            this.lstClients = new ClientListBox();
+            this.txtMessages = new Mikejzx.ChatClient.ReadOnlyRichTextBox(this.components);
+            this.lblMyName = new System.Windows.Forms.Label();
+            this.lstClients = new Mikejzx.ChatClient.ClientListBox(this.components);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -53,16 +55,16 @@
             // label2
             // 
             this.label2.AutoSize = true;
-            this.label2.Location = new System.Drawing.Point(3, 0);
+            this.label2.Location = new System.Drawing.Point(3, 45);
             this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(35, 15);
+            this.label2.Size = new System.Drawing.Size(132, 15);
             this.label2.TabIndex = 1;
-            this.label2.Text = "Users";
+            this.label2.Text = "Select user to chat with:";
             // 
             // btnSend
             // 
             this.btnSend.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnSend.Location = new System.Drawing.Point(459, 400);
+            this.btnSend.Location = new System.Drawing.Point(459, 393);
             this.btnSend.Name = "btnSend";
             this.btnSend.Size = new System.Drawing.Size(75, 23);
             this.btnSend.TabIndex = 4;
@@ -74,7 +76,7 @@
             // 
             this.txtCompose.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.txtCompose.Location = new System.Drawing.Point(3, 400);
+            this.txtCompose.Location = new System.Drawing.Point(3, 393);
             this.txtCompose.Name = "txtCompose";
             this.txtCompose.Size = new System.Drawing.Size(450, 23);
             this.txtCompose.TabIndex = 5;
@@ -96,6 +98,7 @@
             // 
             // splitContainer1.Panel2
             // 
+            this.splitContainer1.Panel2.Controls.Add(this.lblMyName);
             this.splitContainer1.Panel2.Controls.Add(this.lstClients);
             this.splitContainer1.Panel2.Controls.Add(this.label2);
             this.splitContainer1.Size = new System.Drawing.Size(776, 426);
@@ -114,10 +117,20 @@
             this.txtMessages.ReadOnly = true;
             this.txtMessages.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.ForcedVertical;
             this.txtMessages.ShortcutsEnabled = false;
-            this.txtMessages.Size = new System.Drawing.Size(531, 376);
+            this.txtMessages.Size = new System.Drawing.Size(531, 369);
             this.txtMessages.TabIndex = 6;
             this.txtMessages.TabStop = false;
             this.txtMessages.Text = "";
+            // 
+            // lblMyName
+            // 
+            this.lblMyName.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblMyName.Location = new System.Drawing.Point(3, 0);
+            this.lblMyName.Name = "lblMyName";
+            this.lblMyName.Size = new System.Drawing.Size(229, 23);
+            this.lblMyName.TabIndex = 3;
+            this.lblMyName.Text = "Logged in as ...";
             // 
             // lstClients
             // 
@@ -127,10 +140,9 @@
             this.lstClients.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.lstClients.FormattingEnabled = true;
             this.lstClients.ItemHeight = 15;
-            this.lstClients.Location = new System.Drawing.Point(3, 18);
+            this.lstClients.Location = new System.Drawing.Point(3, 63);
             this.lstClients.Name = "lstClients";
-            this.lstClients.Size = new System.Drawing.Size(229, 377);
-            this.lstClients.Sorted = true;
+            this.lstClients.Size = new System.Drawing.Size(229, 332);
             this.lstClients.TabIndex = 2;
             this.lstClients.SelectedIndexChanged += new System.EventHandler(this.lstClients_SelectedIndexChanged);
             // 
@@ -163,5 +175,6 @@
         private SplitContainer splitContainer1;
         private ReadOnlyRichTextBox txtMessages;
         private ClientListBox lstClients;
+        private Label lblMyName;
     }
 }

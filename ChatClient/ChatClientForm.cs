@@ -21,24 +21,31 @@ namespace Mikejzx.ChatClient
             m_Client = client;
             m_Client.Form = this;
 
-            lblHeading.Text = "Click on a user to chat with them.";
+            lblHeading.Text = "";
             txtCompose.Enabled = false;
             btnSend.Enabled = false;
 
             // We display the DisplayString member of ChatClientRecipient.
             lstClients.DisplayMember = "DisplayString";
 
+            m_Client.OnLoginNameChanged += (string name) =>
+            {
+                lblMyName.Text = "Logged in as " + name;
+            };
+
             m_Client.OnClientListUpdate += (Dictionary<string, ChatClientRecipient> clients) =>
             {
                 RefreshClientList(clients);
             };
 
+            Text = "ChatApp";
+
             m_Client.OnRecipientChanged += (ChatClientRecipient? recipient) =>
             {
                 if (recipient is null)
                 {
-                    lblHeading.Text = "Click on a user to chat with them.";
-                    Text = "Chat";
+                    lblHeading.Text = "";
+                    Text = "ChatApp";
                     txtCompose.Enabled = false;
                     btnSend.Enabled = false;
                     txtMessages.Text = "";
@@ -52,9 +59,9 @@ namespace Mikejzx.ChatClient
                     RefreshClientList(m_Client.Clients);
 
                     // Update titles.
-                    lblHeading.Text = $"Chatting with {recipient.Nickname}";
+                    lblHeading.Text = $"{recipient.Nickname} Direct Messages:";
 
-                    Text = $"Chatting with {recipient.Nickname} as {m_Client.Nickname}";
+                    Text = $"ChatApp — {recipient.Nickname}";
                     txtCompose.Enabled = true;
                     btnSend.Enabled = true;
 
@@ -90,6 +97,9 @@ namespace Mikejzx.ChatClient
                 {
                     txtMessages.Text += $"{recipient.Nickname} joined the server.\n";
                 }
+
+                // Refresh client list to update offline status.
+                RefreshClientList(m_Client.Clients);
             };
 
             m_Client.OnClientLeave += (ChatClientRecipient recipient) =>
@@ -99,6 +109,9 @@ namespace Mikejzx.ChatClient
                 {
                     txtMessages.Text += $"{recipient.Nickname} left the server.\n";
                 }
+
+                // Refresh client list to update offline status.
+                RefreshClientList(m_Client.Clients);
             };
 
             txtCompose.Focus();

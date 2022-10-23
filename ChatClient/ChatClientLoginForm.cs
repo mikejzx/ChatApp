@@ -9,6 +9,7 @@ namespace Mikejzx.ChatClient
             InitializeComponent();
 
             m_Client = client;
+            m_Client.Form = null;
             m_Client.Nickname = txtNickname.Text;
 
             // On connection success we destroy the form and open the actual
@@ -38,6 +39,7 @@ namespace Mikejzx.ChatClient
 
             SetLoggingIn(false);
 
+            m_Client.Form = this;
             btnLogin.Focus();
         }
 

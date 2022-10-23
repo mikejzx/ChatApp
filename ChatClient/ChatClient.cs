@@ -10,7 +10,17 @@ namespace Mikejzx.ChatClient
     {
         // The nickname of the client.
         private string m_Nickname = string.Empty;
-        public string Nickname { get => m_Nickname; set => m_Nickname = value; }
+        public string Nickname
+        {
+            get => m_Nickname;
+            set
+            {
+                m_Nickname = value;
+
+                if (Form is not null && OnLoginNameChanged is not null)
+                    Form.Invoke(OnLoginNameChanged, m_Nickname);
+            }
+        }
 
         // The hostname the client is connecting to.
         private string m_Hostname = string.Empty;
@@ -55,18 +65,19 @@ namespace Mikejzx.ChatClient
                     m_RecipientName = value;
                 }
 
-                if (m_Form is not null && OnRecipientChanged is not null)
+                if (Form is not null && OnRecipientChanged is not null)
                 {
                     if (m_RecipientName is null)
-                        m_Form.Invoke(OnRecipientChanged, (object?)null);
+                        Form.Invoke(OnRecipientChanged, (object?)null);
                     else
-                        m_Form.Invoke(OnRecipientChanged, m_Clients[m_RecipientName]);
+                        Form.Invoke(OnRecipientChanged, m_Clients[m_RecipientName]);
                 }
             }
         }
 
         // Callbacks
         public Action? OnConnectionSuccess;
+        public Action<string>? OnLoginNameChanged;
         public Action<string>? OnError;
         public Action<Dictionary<string, ChatClientRecipient>>? OnClientListUpdate;
         public Action<ChatClientRecipient?>? OnRecipientChanged;
@@ -79,13 +90,14 @@ namespace Mikejzx.ChatClient
         private bool m_StopThread = false;
         private Thread? m_Thread;
 
-        private Form? m_Form;
+        private Form? m_Form = null;
         public Form? Form { get => m_Form; set => m_Form = value; }
 
         private readonly object m_ThreadStopSync = new object();
 
         public ChatClient(string nickname, int port)
         {
+            Form = null;
             Nickname = nickname;
             Port = port;
             m_InServer = false;

@@ -45,9 +45,9 @@ namespace Mikejzx.ChatClient
                 {
                     // Show unread count next to name
                     if (UnreadMessages > 0)
-                        return $"({UnreadMessages}) {Nickname} (left)";
+                        return $"({UnreadMessages}) {Nickname} (offline)";
 
-                    return Nickname + " (left)";
+                    return Nickname + " (offline)";
                 }
             }
         }
