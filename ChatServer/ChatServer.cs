@@ -64,7 +64,7 @@ namespace Mikejzx.ChatServer
             {
                 foreach (ChatServerClient client in m_Clients.Values)
                 {
-                    client.Disconnect();
+                    client.Cleanup();
                 }
             }
         }
@@ -167,7 +167,7 @@ namespace Mikejzx.ChatServer
                     }
                 }
                 
-                m_Clients.Add(client.Nickname, client);
+                m_Clients[client.Nickname] = client;
             }
 
             Console.WriteLine($"{client.Nickname} joined the server.");

@@ -28,10 +28,13 @@ namespace Mikejzx.ChatClient
             // We display the DisplayString member of ChatClientRecipient.
             lstClients.DisplayMember = "DisplayString";
 
-            m_Client.OnLoginNameChanged += (string name) =>
-            {
-                lblMyName.Text = "Logged in as " + name;
-            };
+            m_Client.OnConnectionSuccess += () => { NoConnection(false); };
+
+            m_Client.OnError += (string msg) => { NoConnection(true); };
+
+            m_Client.OnConnectionLost += () => { NoConnection(true); };
+
+            m_Client.OnLoginNameChanged += (string name) => { lblMyName.Text = "Logged in as " + name; };
 
             m_Client.OnClientListUpdate += (Dictionary<string, ChatClientRecipient> clients) =>
             {
@@ -117,6 +120,14 @@ namespace Mikejzx.ChatClient
             txtCompose.Focus();
         }
 
+        private void NoConnection(bool notConnected)
+        {
+            lblServer.Text = $"Server: {m_Client.Hostname}:{m_Client.Port}";
+
+            btnConnect.Enabled = notConnected;
+            btnConnect.Text = notConnected ? "Reconnect" : "Connected";
+        }
+
         private void RefreshClientList(Dictionary<string, ChatClientRecipient> clients)
         {
             // Update the client list control.
@@ -184,6 +195,13 @@ namespace Mikejzx.ChatClient
             m_Client.SendMessage(txtCompose.Text);
 
             txtCompose.Clear();
+        }
+
+        private void btnConnect_Click(object sender, EventArgs e)
+        {
+            btnConnect.Text = "Connecting...";
+            btnConnect.Enabled = false;
+            m_Client.Connect();
         }
     }
 }

@@ -27,6 +27,8 @@ namespace Mikejzx.ChatServer
         private bool m_IsInServer = false;
         public bool IsInServer { get => m_IsInServer;  }
 
+        private bool m_Disconnected = true;
+
         private string m_Nickname = "";
         public string Nickname { get => m_Nickname; set => m_Nickname = value; }
 
@@ -34,6 +36,7 @@ namespace Mikejzx.ChatServer
         public readonly object receiveSync = new object();
         public readonly object sendSync = new object();
         private readonly object m_ThreadStopSync = new object();
+        private readonly object m_DisconnectSync = new object();
 
         public ChatServerClient(TcpClient tcpClient, SslStream stream, ChatServer server)
         {
@@ -44,8 +47,13 @@ namespace Mikejzx.ChatServer
             m_Writer = new BinaryWriter(m_Stream, Encoding.UTF8);
             m_Reader = new BinaryReader(m_Stream, Encoding.UTF8);
 
-            // Start worker thread.
-            m_StopThread = false;
+            lock(m_DisconnectSync)
+                m_Disconnected = false;
+
+            lock(m_ThreadStopSync)
+                m_StopThread = false;
+
+            // Start the worker thread.
             m_Thread = new Thread(new ThreadStart(Run));
             m_Thread.Start();
         }
@@ -57,8 +65,8 @@ namespace Mikejzx.ChatServer
                 // Client is disconnecting
                 case PacketType.ClientDisconnect:
                     // Indicate that worker thread should stop.
-                    lock (m_ThreadStopSync)
-                        m_StopThread = true;
+                    lock (m_DisconnectSync)
+                        m_Disconnected = true;
 
                     break;
 
@@ -116,7 +124,6 @@ namespace Mikejzx.ChatServer
                         // Client sent us an invalid packet, as they are not joined
                         // yet we only expect a ClientHello.
                         Console.WriteLine("Client did not send ClientHello packet");
-                        packet.Dispose();
                         Cleanup();
                         return;
                     }
@@ -188,6 +195,12 @@ namespace Mikejzx.ChatServer
                             break;
                     }
 
+                    lock (m_DisconnectSync)
+                    {
+                        if (m_Disconnected)
+                            break;
+                    }
+
                     lock (receiveSync)
                     {
                         if (!m_Tcp.Connected)
@@ -201,6 +214,8 @@ namespace Mikejzx.ChatServer
 
                     HandlePacket(packet);
                 }
+
+                packet.Dispose();
             }
             catch (Exception e)
             {
@@ -209,14 +224,23 @@ namespace Mikejzx.ChatServer
                     Console.WriteLine($"InnerException: {e.InnerException.Message}");
             }
 
-            Console.WriteLine("Disconnecting " + Nickname);
-            Disconnect();
+            lock (m_DisconnectSync)
+            {
+                if (m_Disconnected)
+                {
+                    Console.WriteLine("Disconnecting " + Nickname);
+                    Disconnect();
+                }
+            }
         }
 
-        private void Cleanup()
+        public void Cleanup()
         {
             lock (m_ThreadStopSync)
                 m_StopThread = false;
+
+            lock (m_DisconnectSync)
+                m_Disconnected = true;
 
             m_IsInServer = false;
 

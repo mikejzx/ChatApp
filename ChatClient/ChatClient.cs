@@ -77,6 +77,7 @@ namespace Mikejzx.ChatClient
 
         // Callbacks
         public Action? OnConnectionSuccess;
+        public Action? OnConnectionLost;
         public Action<string>? OnLoginNameChanged;
         public Action<string>? OnError;
         public Action<Dictionary<string, ChatClientRecipient>>? OnClientListUpdate;
@@ -163,7 +164,7 @@ namespace Mikejzx.ChatClient
                 lock(m_ThreadStopSync)
                     m_StopThread = true;
 
-                m_Thread.Join();
+                //m_Thread.Join();
             }
 
             m_InServer = false;
@@ -193,8 +194,12 @@ namespace Mikejzx.ChatClient
         // Establish connection to host.
         public void Connect()
         {
+            lock(m_ThreadStopSync)
+                m_StopThread = false;
+
             // Start the worker thread.
             m_Thread = new Thread(new ThreadStart(Run));
+            m_Thread.IsBackground = true;
             m_Thread.Start();
         }
 
@@ -226,14 +231,23 @@ namespace Mikejzx.ChatClient
 
                 // Server sends us current client list.
                 case PacketType.ServerClientList:
-                    m_Clients.Clear();
-
                     int count = packet.ReadInt32();
+
+                    foreach (ChatClientRecipient client in m_Clients.Values)
+                    {
+                        // Set each client as unjoined, and then whoever is in
+                        // the server client list is set to joined.
+                        client.isJoined = false;
+                    }
 
                     for (int i = 0; i < count; ++i)
                     {
                         string nickname = packet.ReadString();
-                        m_Clients.Add(nickname, new ChatClientRecipient(nickname, true));
+
+                        if (!m_Clients.ContainsKey(nickname))
+                            m_Clients.Add(nickname, new ChatClientRecipient(nickname, true));
+                        else
+                            m_Clients[nickname].isJoined = true;
                     }    
 
                     if (Form is not null && OnClientListUpdate is not null)
@@ -382,42 +396,67 @@ namespace Mikejzx.ChatClient
                     if (!m_Tcp.Connected)
                         break;
 
-                    //if (!m_Tcp.GetStream().DataAvailable)
-                        //continue;
+                    //if (m_Tcp.Available <= 0)
+                    //    continue;
 
                     // Read next packet.
-                    Packet packet = new Packet(m_Reader);
-
-                    // We are not "in" the server yet; so we only expect a ServerWelcome packet.
-                    if (!m_InServer)
+                    using (Packet packet = new Packet(m_Reader))
                     {
-                        if (packet.PacketType == PacketType.ServerError)
+                        // We are not "in" the server yet; so we only expect a ServerWelcome packet.
+                        if (!m_InServer)
                         {
-                            PacketErrorCode id = (PacketErrorCode)packet.ReadUInt32();
-                            string msg = packet.ReadString();
-                            ShowError($"Server error {id}: {msg}");
-                            return;
+                            if (packet.PacketType == PacketType.ServerError)
+                            {
+                                PacketErrorCode id = (PacketErrorCode)packet.ReadUInt32();
+                                string msg = packet.ReadString();
+                                ShowError($"Server error {id}: {msg}");
+                                Cleanup();
+                                return;
+                            }
+
+                            if (packet.PacketType != PacketType.ServerWelcome)
+                            {
+                                ShowError("Error: unexpected packet.");
+                                Cleanup();
+                                return;
+                            }
                         }
 
-                        if (packet.PacketType != PacketType.ServerWelcome)
-                        {
-                            ShowError("Error: unexpected packet.");
-                            return;
-                        }
+                        HandlePacket(packet);
                     }
-
-                    HandlePacket(packet);
                 }
                 catch (IOException)
                 {
+                    if (m_InServer)
+                    {
+                        if (Form is not null && OnConnectionLost is not null)
+                            Form.Invoke(OnConnectionLost);
+                    }
+                    m_InServer = false;
+                    Cleanup();
                     return;
                 }
                 catch (ObjectDisposedException)
                 {
+                    if (m_InServer)
+                    {
+                        if (Form is not null && OnConnectionLost is not null)
+                            Form.Invoke(OnConnectionLost);
+                    }
+                    m_InServer = false;
+                    Cleanup();
                     return;
                 }
                 catch (Exception e)
                 {
+                    if (m_InServer)
+                    {
+                        if (Form is not null && OnConnectionLost is not null)
+                            Form.Invoke(OnConnectionLost);
+                    }
+                    m_InServer = false;
+                    Cleanup();
+
                     ShowError($"Exception: {e.Message}");
                     return;
                 }
