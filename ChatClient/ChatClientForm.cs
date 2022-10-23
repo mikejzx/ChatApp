@@ -14,9 +14,6 @@ namespace Mikejzx.ChatClient
     {
         private ChatClient m_Client;
 
-        public Form? LoginForm { get => m_LoginForm; set => m_LoginForm = value; }
-        private Form? m_LoginForm = null;
-
         public ChatClientForm(ChatClient client)
         {
             InitializeComponent();
@@ -29,6 +26,19 @@ namespace Mikejzx.ChatClient
             btnSend.Enabled = false;
 
             m_Client.Recipient = null;
+
+            // When the messages textbox is scrolled to bottom we hide the
+            // "Scroll to bottom" button.
+            txtMessages.ScrolledToBottom += (object? sender, EventArgs e) =>
+            {
+                btnScrollToBottom.Hide();
+                btnScrollToBottom.Enabled = false;
+            };
+            txtMessages.UnscrolledFromBottom += (object? sender, EventArgs e) =>
+            {
+                btnScrollToBottom.Show();
+                btnScrollToBottom.Enabled = true;
+            };
 
             // We display the DisplayString member of ChatClientRecipient.
             lstClients.DisplayMember = "DisplayString";
@@ -46,20 +56,25 @@ namespace Mikejzx.ChatClient
                 RefreshClientList(clients);
             };
 
-            Text = "ChatApp";
+            Text = Program.AppName;
 
             m_Client.OnRecipientChanged += (ChatClientRecipient? recipient) =>
             {
+                bool shouldScroll;
+
                 if (recipient is null)
                 {
                     lblHeading.Text = "";
-                    Text = "ChatApp";
+                    Text = Program.AppName;
                     txtCompose.Enabled = false;
                     btnSend.Enabled = false;
                     txtMessages.Text = "";
+                    shouldScroll = true;
                 }
                 else
                 {
+                    shouldScroll = txtMessages.IsAtMaxScroll();
+
                     // Reset unread count.
                     recipient.UnreadMessages = 0;
 
@@ -67,9 +82,9 @@ namespace Mikejzx.ChatClient
                     RefreshClientList(m_Client.Clients);
 
                     // Update titles.
-                    lblHeading.Text = $"{recipient.Nickname} Direct Messages:";
+                    lblHeading.Text = $"Direct Messages with {recipient.Nickname}:";
 
-                    Text = $"ChatApp — {recipient.Nickname}";
+                    Text = $"{Program.AppName} — {recipient.Nickname}";
                     txtCompose.Enabled = true;
                     btnSend.Enabled = true;
 
@@ -79,11 +94,14 @@ namespace Mikejzx.ChatClient
                     // message history.
                     foreach (ChatMessage msg in recipient.Messages)
                     {
-                        txtMessages.Text += $"<{msg.sender}>: {msg.message}\n";
+                        txtMessages.Text += msg.ToString() + "\n";
                     }
 
                     txtCompose.Focus();
                 }
+
+                if (shouldScroll)
+                    txtMessages.ScrollToBottom();
             };
 
             m_Client.OnMessageReceived += (string channel, ChatMessage msg) => 
@@ -91,34 +109,50 @@ namespace Mikejzx.ChatClient
                 // Append message to the messages list (if we are on the user's channel).
                 if (m_Client.Recipient == channel)
                 {
-                    txtMessages.Text += $"<{msg.sender}>: {msg.message}\n";
+                    bool shouldScroll = txtMessages.IsAtMaxScroll();
+
+                    txtMessages.Text += msg.ToString() + "\n";
+
+                    if (shouldScroll)
+                        txtMessages.ScrollToBottom();
+
                     return true;
                 }
 
                 return false;
             };
 
-            m_Client.OnClientJoin += (ChatClientRecipient recipient) =>
+            m_Client.OnClientJoin += (ChatClientRecipient recipient, ChatMessage msg) =>
             {
                 // Show message to indicate client joining the server.
                 if (m_Client.Recipient == recipient.Nickname)
                 {
-                    txtMessages.Text += $"{recipient.Nickname} joined the server.\n";
+                    bool shouldScroll = txtMessages.IsAtMaxScroll();
+
+                    txtMessages.Text += msg.ToString() + "\n";
+
+                    if (shouldScroll)
+                        txtMessages.ScrollToBottom();
                 }
 
-                // Refresh client list to update offline status.
+                // Refresh the client list to update offline status.
                 RefreshClientList(m_Client.Clients);
             };
 
-            m_Client.OnClientLeave += (ChatClientRecipient recipient) =>
+            m_Client.OnClientLeave += (ChatClientRecipient recipient, ChatMessage msg) =>
             {
+                bool shouldScroll = txtMessages.IsAtMaxScroll();
+
                 // Show message to indicate client leaving the server.
                 if (m_Client.Recipient == recipient.Nickname)
                 {
-                    txtMessages.Text += $"{recipient.Nickname} left the server.\n";
+                    txtMessages.Text += msg.ToString() + "\n";
+
+                    if (shouldScroll)
+                        txtMessages.ScrollToBottom();
                 }
 
-                // Refresh client list to update offline status.
+                // Refresh the client list to update offline status.
                 RefreshClientList(m_Client.Clients);
             };
 
@@ -216,8 +250,8 @@ namespace Mikejzx.ChatClient
 
             // Return to the login form.
             Hide();
-            if (m_LoginForm is not null)
-                m_LoginForm.Show();
+            if (Program.loginForm is not null)
+                Program.loginForm.Show();
 
             Program.CheckForExit();
         }
@@ -231,6 +265,11 @@ namespace Mikejzx.ChatClient
         {
             ChatClientAboutBox about = new ChatClientAboutBox();
             about.ShowDialog();
+        }
+
+        private void btnScrollToBottom_Click(object sender, EventArgs e)
+        {
+            txtMessages.ScrollToBottom();
         }
     }
 }

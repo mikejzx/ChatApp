@@ -83,8 +83,8 @@ namespace Mikejzx.ChatClient
         public Action<Dictionary<string, ChatClientRecipient>>? OnClientListUpdate;
         public Action<ChatClientRecipient?>? OnRecipientChanged;
         public Func<string, ChatMessage, bool>? OnMessageReceived;
-        public Action<ChatClientRecipient>? OnClientLeave;
-        public Action<ChatClientRecipient>? OnClientJoin;
+        public Action<ChatClientRecipient, ChatMessage>? OnClientLeave;
+        public Action<ChatClientRecipient, ChatMessage>? OnClientJoin;
 
         private bool m_InServer = false;
 
@@ -273,13 +273,17 @@ namespace Mikejzx.ChatClient
                         m_Clients.Add(joinedNickname, new ChatClientRecipient(joinedNickname, true));
                     }
 
+                    // Append unjoin message
+                    ChatMessage joinMsg = m_Clients[joinedNickname].AddMessage(ChatMessageType.UserJoin, 
+                                                                               joinedNickname);
+
                     // Run client list change callback.
                     if (Form is not null && OnClientListUpdate is not null)
                         Form.Invoke(OnClientListUpdate, m_Clients);
 
                     // Run client join callback
                     if (Form is not null && OnClientJoin is not null)
-                        Form.Invoke(OnClientJoin, m_Clients[joinedNickname]);
+                        Form.Invoke(OnClientJoin, m_Clients[joinedNickname], joinMsg);
 
                     break;
 
@@ -295,9 +299,13 @@ namespace Mikejzx.ChatClient
                     // Set client as unjoined.
                     m_Clients[leaveNickname].isJoined = false;
 
+                    // Append unjoin message
+                    ChatMessage leaveMsg = m_Clients[leaveNickname].AddMessage(ChatMessageType.UserLeave, 
+                                                                               leaveNickname);
+
                     // Run client exit callback
                     if (Form is not null && OnClientLeave is not null)
-                        Form.Invoke(OnClientLeave, m_Clients[leaveNickname]);
+                        Form.Invoke(OnClientLeave, m_Clients[leaveNickname], leaveMsg);
 
                     break;
 
@@ -327,7 +335,8 @@ namespace Mikejzx.ChatClient
                     }
 
                     // Append to message list for this recipient.
-                    ChatMessage addedMessage = m_Clients[channel].AddMessage(sender, message);
+                    ChatMessage addedMessage = m_Clients[channel].AddMessage(ChatMessageType.UserMessage, 
+                                                                             sender, message);
 
                     if (Form is not null && OnMessageReceived is not null)
                     {

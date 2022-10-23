@@ -6,15 +6,39 @@ using System.Threading.Tasks;
 
 namespace Mikejzx.ChatClient
 {
+    public enum ChatMessageType
+    { 
+        UserMessage,
+        UserJoin,
+        UserLeave,
+    }
+
     public class ChatMessage
     {
+        public ChatMessageType type;
         public string sender;
         public string message;
 
-        public ChatMessage(string sender, string message)
+        public ChatMessage(ChatMessageType type, string sender, string message)
         {
+            this.type = type;
             this.sender = sender;
             this.message = message;
+        }
+
+        // Convert the message to a string.
+        public override string ToString()
+        {
+            switch (type)
+            {
+                case ChatMessageType.UserMessage:
+                    return $"<{sender}>: {message}";
+                case ChatMessageType.UserLeave:
+                    return $"{sender} left the server.";
+                case ChatMessageType.UserJoin:
+                    return $"{sender} joined the server.";
+            }
+            return string.Empty;
         }
     }
 
@@ -69,10 +93,10 @@ namespace Mikejzx.ChatClient
         }
 
         // Add message to the message history
-        public ChatMessage AddMessage(string sender, string message)
+        public ChatMessage AddMessage(ChatMessageType type, string sender, string message="")
         {
             // Add the message
-            ChatMessage msg = new ChatMessage(sender, message);
+            ChatMessage msg = new ChatMessage(type, sender, message);
             m_Messages.Add(msg);
             return msg;
         }

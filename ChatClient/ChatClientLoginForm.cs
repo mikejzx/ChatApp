@@ -4,7 +4,7 @@ namespace Mikejzx.ChatClient
     {
         private ChatClient m_Client;
 
-        public ChatClientLoginForm(ChatClient client, Form chatForm)
+        public ChatClientLoginForm(ChatClient client)
         {
             InitializeComponent();
 
@@ -20,7 +20,8 @@ namespace Mikejzx.ChatClient
                 Hide();
 
                 // Show the chat form.
-                chatForm.Show();
+                if (Program.chatForm is not null)
+                    Program.chatForm.Show();
 
                 // Null the recipient (to clear messages box on re-login).
                 m_Client.Recipient = null;

@@ -34,6 +34,7 @@
             this.btnSend = new System.Windows.Forms.Button();
             this.txtCompose = new System.Windows.Forms.TextBox();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
+            this.btnScrollToBottom = new System.Windows.Forms.Button();
             this.txtMessages = new Mikejzx.ChatClient.ReadOnlyRichTextBox(this.components);
             this.lblServer = new System.Windows.Forms.Label();
             this.btnConnect = new System.Windows.Forms.Button();
@@ -41,10 +42,10 @@
             this.lstClients = new Mikejzx.ChatClient.ClientListBox(this.components);
             this.menuStrip = new System.Windows.Forms.MenuStrip();
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.logOutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.helpToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.aboutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.logOutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -54,21 +55,24 @@
             // 
             // lblHeading
             // 
-            this.lblHeading.AutoSize = true;
-            this.lblHeading.Location = new System.Drawing.Point(3, 0);
+            this.lblHeading.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblHeading.Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.lblHeading.Location = new System.Drawing.Point(3, 3);
             this.lblHeading.Name = "lblHeading";
-            this.lblHeading.Size = new System.Drawing.Size(52, 15);
+            this.lblHeading.Size = new System.Drawing.Size(419, 27);
             this.lblHeading.TabIndex = 0;
             this.lblHeading.Text = "Heading";
+            this.lblHeading.TextAlign = System.Drawing.ContentAlignment.BottomLeft;
             // 
             // label2
             // 
-            this.label2.AutoSize = true;
-            this.label2.Location = new System.Drawing.Point(3, 45);
+            this.label2.Location = new System.Drawing.Point(3, 3);
             this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(132, 15);
+            this.label2.Size = new System.Drawing.Size(229, 27);
             this.label2.TabIndex = 1;
             this.label2.Text = "Select user to chat with:";
+            this.label2.TextAlign = System.Drawing.ContentAlignment.BottomLeft;
             // 
             // btnSend
             // 
@@ -100,6 +104,7 @@
             // 
             // splitContainer1.Panel1
             // 
+            this.splitContainer1.Panel1.Controls.Add(this.btnScrollToBottom);
             this.splitContainer1.Panel1.Controls.Add(this.txtMessages);
             this.splitContainer1.Panel1.Controls.Add(this.txtCompose);
             this.splitContainer1.Panel1.Controls.Add(this.lblHeading);
@@ -116,6 +121,18 @@
             this.splitContainer1.SplitterDistance = 537;
             this.splitContainer1.TabIndex = 6;
             // 
+            // btnScrollToBottom
+            // 
+            this.btnScrollToBottom.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnScrollToBottom.Enabled = false;
+            this.btnScrollToBottom.Location = new System.Drawing.Point(428, 3);
+            this.btnScrollToBottom.Name = "btnScrollToBottom";
+            this.btnScrollToBottom.Size = new System.Drawing.Size(106, 24);
+            this.btnScrollToBottom.TabIndex = 7;
+            this.btnScrollToBottom.Text = "Scroll to bottom";
+            this.btnScrollToBottom.UseVisualStyleBackColor = true;
+            this.btnScrollToBottom.Click += new System.EventHandler(this.btnScrollToBottom_Click);
+            // 
             // txtMessages
             // 
             this.txtMessages.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
@@ -123,12 +140,13 @@
             | System.Windows.Forms.AnchorStyles.Right)));
             this.txtMessages.BackColor = System.Drawing.SystemColors.Window;
             this.txtMessages.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.txtMessages.Location = new System.Drawing.Point(3, 18);
+            this.txtMessages.Font = new System.Drawing.Font("Lucida Console", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.txtMessages.Location = new System.Drawing.Point(3, 33);
             this.txtMessages.Name = "txtMessages";
             this.txtMessages.ReadOnly = true;
             this.txtMessages.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.ForcedVertical;
             this.txtMessages.ShortcutsEnabled = false;
-            this.txtMessages.Size = new System.Drawing.Size(531, 354);
+            this.txtMessages.Size = new System.Drawing.Size(531, 339);
             this.txtMessages.TabIndex = 6;
             this.txtMessages.TabStop = false;
             this.txtMessages.Text = "";
@@ -136,12 +154,12 @@
             // lblServer
             // 
             this.lblServer.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
-            this.lblServer.AutoSize = true;
-            this.lblServer.Location = new System.Drawing.Point(3, 389);
+            this.lblServer.Location = new System.Drawing.Point(3, 383);
             this.lblServer.Name = "lblServer";
-            this.lblServer.Size = new System.Drawing.Size(45, 15);
+            this.lblServer.Size = new System.Drawing.Size(135, 25);
             this.lblServer.TabIndex = 5;
             this.lblServer.Text = "Server: ";
+            this.lblServer.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // btnConnect
             // 
@@ -160,11 +178,12 @@
             // 
             this.lblMyName.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.lblMyName.Location = new System.Drawing.Point(3, 0);
+            this.lblMyName.Location = new System.Drawing.Point(3, 355);
             this.lblMyName.Name = "lblMyName";
-            this.lblMyName.Size = new System.Drawing.Size(229, 23);
+            this.lblMyName.Size = new System.Drawing.Size(229, 25);
             this.lblMyName.TabIndex = 3;
             this.lblMyName.Text = "Logged in as ...";
+            this.lblMyName.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // lstClients
             // 
@@ -174,7 +193,7 @@
             this.lstClients.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.lstClients.FormattingEnabled = true;
             this.lstClients.ItemHeight = 15;
-            this.lstClients.Location = new System.Drawing.Point(3, 63);
+            this.lstClients.Location = new System.Drawing.Point(3, 33);
             this.lstClients.Name = "lstClients";
             this.lstClients.Size = new System.Drawing.Size(229, 317);
             this.lstClients.TabIndex = 2;
@@ -200,10 +219,17 @@
             this.fileToolStripMenuItem.Size = new System.Drawing.Size(37, 20);
             this.fileToolStripMenuItem.Text = "File";
             // 
+            // logOutToolStripMenuItem
+            // 
+            this.logOutToolStripMenuItem.Name = "logOutToolStripMenuItem";
+            this.logOutToolStripMenuItem.Size = new System.Drawing.Size(115, 22);
+            this.logOutToolStripMenuItem.Text = "Log out";
+            this.logOutToolStripMenuItem.Click += new System.EventHandler(this.logOutToolStripMenuItem_Click);
+            // 
             // exitToolStripMenuItem
             // 
             this.exitToolStripMenuItem.Name = "exitToolStripMenuItem";
-            this.exitToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.exitToolStripMenuItem.Size = new System.Drawing.Size(115, 22);
             this.exitToolStripMenuItem.Text = "Exit";
             this.exitToolStripMenuItem.Click += new System.EventHandler(this.exitToolStripMenuItem_Click);
             // 
@@ -221,13 +247,6 @@
             this.aboutToolStripMenuItem.Size = new System.Drawing.Size(107, 22);
             this.aboutToolStripMenuItem.Text = "About";
             this.aboutToolStripMenuItem.Click += new System.EventHandler(this.aboutToolStripMenuItem_Click);
-            // 
-            // logOutToolStripMenuItem
-            // 
-            this.logOutToolStripMenuItem.Name = "logOutToolStripMenuItem";
-            this.logOutToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
-            this.logOutToolStripMenuItem.Text = "Log out";
-            this.logOutToolStripMenuItem.Click += new System.EventHandler(this.logOutToolStripMenuItem_Click);
             // 
             // ChatClientForm
             // 
@@ -272,5 +291,6 @@
         private ToolStripMenuItem helpToolStripMenuItem;
         private ToolStripMenuItem aboutToolStripMenuItem;
         private ToolStripMenuItem logOutToolStripMenuItem;
+        private Button btnScrollToBottom;
     }
 }

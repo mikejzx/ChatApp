@@ -13,6 +13,8 @@ namespace Mikejzx.ChatClient
         // Form used for chatting
         public static ChatClientForm? chatForm;
 
+        public static readonly string AppName = "ChatApp";
+
         /// <summary>
         ///  The main entry point for the application.
         /// </summary>
@@ -24,8 +26,7 @@ namespace Mikejzx.ChatClient
 
             client = new ChatClient("", ChatConstants.ServerPort);
             chatForm = new ChatClientForm(client);
-            loginForm = new ChatClientLoginForm(client, chatForm);
-            chatForm.LoginForm = loginForm;
+            loginForm = new ChatClientLoginForm(client);
 
             // Set both forms invisible by default.
             loginForm.Visible = false;
