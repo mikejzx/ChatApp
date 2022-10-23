@@ -37,7 +37,7 @@ namespace Mikejzx.ChatClient
                         return titleAttribute.Title;
                     }
                 }
-                return System.IO.Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().CodeBase);
+                return System.IO.Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().Location);
             }
         }
 
@@ -45,7 +45,12 @@ namespace Mikejzx.ChatClient
         {
             get
             {
-                return Assembly.GetExecutingAssembly().GetName().Version.ToString();
+                Version? version = Assembly.GetExecutingAssembly().GetName().Version;
+
+                if (version is not null)
+                    return version.ToString();
+
+                return "(null)";
             }
         }
 

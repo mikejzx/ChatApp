@@ -14,6 +14,9 @@ namespace Mikejzx.ChatClient
     {
         private ChatClient m_Client;
 
+        public Form? LoginForm { get => m_LoginForm; set => m_LoginForm = value; }
+        private Form? m_LoginForm = null;
+
         public ChatClientForm(ChatClient client)
         {
             InitializeComponent();
@@ -24,6 +27,8 @@ namespace Mikejzx.ChatClient
             lblHeading.Text = "";
             txtCompose.Enabled = false;
             btnSend.Enabled = false;
+
+            m_Client.Recipient = null;
 
             // We display the DisplayString member of ChatClientRecipient.
             lstClients.DisplayMember = "DisplayString";
@@ -202,6 +207,19 @@ namespace Mikejzx.ChatClient
             btnConnect.Text = "Connecting...";
             btnConnect.Enabled = false;
             m_Client.Connect();
+        }
+
+        private void logOutToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            // Log out of the server.
+            m_Client.Disconnect();
+
+            // Return to the login form.
+            Hide();
+            if (m_LoginForm is not null)
+                m_LoginForm.Show();
+
+            Program.CheckForExit();
         }
 
         private void exitToolStripMenuItem_Click(object sender, EventArgs e)

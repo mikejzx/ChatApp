@@ -22,6 +22,9 @@ namespace Mikejzx.ChatClient
                 // Show the chat form.
                 chatForm.Show();
 
+                // Null the recipient (to clear messages box on re-login).
+                m_Client.Recipient = null;
+
                 // Re-enable controls.
                 SetLoggingIn(false);
             };

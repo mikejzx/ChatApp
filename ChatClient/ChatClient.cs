@@ -182,6 +182,9 @@ namespace Mikejzx.ChatClient
                 }
             }
 
+            // Clear the clients (to clear message history on logout).
+            m_Clients.Clear();
+
             Cleanup();
         }
 

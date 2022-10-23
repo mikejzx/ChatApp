@@ -25,6 +25,7 @@ namespace Mikejzx.ChatClient
             client = new ChatClient("", ChatConstants.ServerPort);
             chatForm = new ChatClientForm(client);
             loginForm = new ChatClientLoginForm(client, chatForm);
+            chatForm.LoginForm = loginForm;
 
             // Set both forms invisible by default.
             loginForm.Visible = false;
