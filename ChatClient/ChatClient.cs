@@ -2,6 +2,7 @@
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using Mikejzx.ChatShared;
 
 namespace Mikejzx.ChatClient
@@ -85,6 +86,9 @@ namespace Mikejzx.ChatClient
         public Func<string, ChatMessage, bool>? OnMessageReceived;
         public Action<ChatClientRecipient, ChatMessage>? OnClientLeave;
         public Action<ChatClientRecipient, ChatMessage>? OnClientJoin;
+        public Func<X509Certificate, string, bool>? OnCertificateChanged;
+        public Func<X509Certificate, bool>? OnCertificateFirstTime;
+        public Action? OnCertificateValidationFailed;
 
         private bool m_InServer = false;
 
@@ -208,7 +212,106 @@ namespace Mikejzx.ChatClient
 
         private bool ValidateCertificate(object? sender, X509Certificate? cert, X509Chain? chain, SslPolicyErrors policyErrors)
         {
-            // Trust all certificates.
+            if (cert is null)
+            {
+                ShowError("Server did not present a certificate.");
+                return false;
+            }
+
+            // Base64 hashes of all certificates that we trust.
+            Dictionary<string, string> trustedCertificates = new Dictionary<string, string>();
+
+            using (FileStream file = new FileStream(Program.TOFUPath, FileMode.OpenOrCreate, FileAccess.Read))
+            {
+                if (!file.CanRead)
+                {
+                    ShowError("Failed to open TOFU file for reading.");
+                    return false;
+                }
+
+                // Read list of trusted certificates from TOFU file.
+                using (StreamReader reader = new StreamReader(file))
+                {
+                    for (string? line = reader.ReadLine();
+                         line is not null;
+                         line = reader.ReadLine())
+                    {
+                        string[] columns = line.Split(" ");
+
+                        // Invalid line.
+                        if (columns.Count() != 2)
+                            continue;
+
+                        // Store hostname and fingerprint.
+                        trustedCertificates.Add(columns[0], columns[1]);
+                    }
+                }
+
+                // Get certificate details.
+                string certName = $"{Hostname}:{Port}";
+                string certFingerprint = cert.GetCertHashString();
+
+                // Perform trust-on-first-use (TOFU) validation check.
+                if (!trustedCertificates.ContainsKey(certName))
+                {
+                    // First time seeing this certificate, so we add it.
+                    trustedCertificates.Add(certName, certFingerprint);
+                    if (Form != null && OnCertificateFirstTime != null)
+                    {
+                        if (!(bool)Form.Invoke(OnCertificateFirstTime, cert))
+                        {
+                            // User rejected the first certificate.
+                            return false;
+                        }
+                    }
+                }
+                else
+                {
+                    // Check if hash matches what we have stored already.
+                    if (trustedCertificates[certName] != certFingerprint)
+                    {
+                        // Warn user if hashes do not match
+                        if (Form != null && OnCertificateChanged != null)
+                        {
+                            if (!(bool)Form.Invoke(OnCertificateChanged,
+                                                   cert,
+                                                   trustedCertificates[certName]))
+                            {
+                                // User rejected the certificate
+                                return false;
+                            }
+
+                            // User trusts new certificate; we replace it.
+                            trustedCertificates[certName] = certFingerprint;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            using (FileStream file = new FileStream(Program.TOFUPath, FileMode.OpenOrCreate, FileAccess.Write))
+            {
+                if (!file.CanWrite)
+                {
+                    ShowError("Failed to open TOFU file for writing.");
+                    return false;
+                }
+
+                // Write the new file.
+                using(StreamWriter writer = new StreamWriter(file))
+                {
+                    foreach (KeyValuePair<string, string> certificate in trustedCertificates)
+                    {
+                        // Write as two columns; the hostname and the certificate itself.
+                        writer.WriteLine($"{certificate.Key} {certificate.Value}");
+                    }
+                }
+            }
+
+            // Certificate is trusted.
             return true;
         }
 
@@ -378,7 +481,24 @@ namespace Mikejzx.ChatClient
 
             SslClientAuthenticationOptions options = new SslClientAuthenticationOptions();
             options.TargetHost = Hostname;
-            m_Stream.AuthenticateAsClient(options);
+
+            try
+            {
+                m_Stream.AuthenticateAsClient(options);
+            }
+            catch (System.Security.Authentication.AuthenticationException)
+            {
+                // Validation failed; certificate is untrusted.
+                if (Form is not null && OnCertificateValidationFailed is not null)
+                    Form.Invoke(OnCertificateValidationFailed);
+
+                return;
+            }
+            catch(ObjectDisposedException)
+            {
+                // Due to user closing out of application.
+                return;
+            }
 
             m_Stream.ReadTimeout = Timeout.Infinite;
             m_Stream.WriteTimeout = Timeout.Infinite;

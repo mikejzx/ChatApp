@@ -13,7 +13,11 @@ namespace Mikejzx.ChatClient
         // Form used for chatting
         public static ChatClientForm? chatForm;
 
+        // Name of the application
         public static readonly string AppName = "ChatApp";
+
+        // Path of trusted certificates file.
+        public static readonly string TOFUPath = "tofu.txt";
 
         /// <summary>
         ///  The main entry point for the application.

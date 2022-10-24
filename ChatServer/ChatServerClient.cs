@@ -217,18 +217,31 @@ namespace Mikejzx.ChatServer
 
                 packet.Dispose();
             }
+            catch (IOException e)
+            {
+                Console.WriteLine($"IOException: {e.Message}");
+                if (e.InnerException is not null)
+                    Console.WriteLine($"InnerException: {e.InnerException.Message}");
+
+                // Disconnect the client.
+                lock (m_DisconnectSync)
+                    m_Disconnected = true;
+            }
             catch (Exception e)
             {
                 Console.WriteLine($"Exception: {e.Message}");
                 if (e.InnerException is not null)
                     Console.WriteLine($"InnerException: {e.InnerException.Message}");
+
+                // Disconnect the client.
+                lock (m_DisconnectSync)
+                    m_Disconnected = true;
             }
 
             lock (m_DisconnectSync)
             {
                 if (m_Disconnected)
                 {
-                    Console.WriteLine("Disconnecting " + Nickname);
                     Disconnect();
                 }
             }
@@ -256,7 +269,12 @@ namespace Mikejzx.ChatServer
 
         public void Disconnect()
         {
-            m_Server.RemoveClient(this);
+            if (!string.IsNullOrEmpty(Nickname))
+            { 
+                Console.WriteLine(Nickname + "disconnected.");
+                m_Server.RemoveClient(this);
+            }
+
             Cleanup();
         }
     }

@@ -34,9 +34,9 @@ namespace Mikejzx.ChatClient
                 case ChatMessageType.UserMessage:
                     return $"<{sender}>: {message}";
                 case ChatMessageType.UserLeave:
-                    return $"{sender} left the server.";
+                    return $"{sender} disconnected.";
                 case ChatMessageType.UserJoin:
-                    return $"{sender} joined the server.";
+                    return $"{sender} connected.";
             }
             return string.Empty;
         }

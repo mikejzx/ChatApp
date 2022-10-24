@@ -32,11 +32,26 @@ namespace Mikejzx.ChatClient
 
             m_Client.OnError += (string msg) => 
             {
-                // Show the error message.
-                MessageBox.Show($"{msg}", "An error occurred.", 
-                                MessageBoxButtons.OK, 
-                                MessageBoxIcon.Error);
+                TaskDialogButton okButton = new TaskDialogButton();
+                okButton.Tag = DialogResult.OK;
+                okButton.Text = "OK";
 
+                TaskDialogPage page = new TaskDialogPage();
+                page.Caption = "Error";
+                page.DefaultButton = okButton;
+                page.Heading = "Error";
+                page.Icon = TaskDialogIcon.Error;
+                page.Text = msg;
+                page.Buttons = new TaskDialogButtonCollection() { okButton };
+
+                TaskDialog.ShowDialog(this, page, TaskDialogStartupLocation.CenterScreen);
+
+                // Re-enable controls
+                SetLoggingIn(false);
+            };
+
+            m_Client.OnCertificateValidationFailed += () =>
+            {
                 // Re-enable controls
                 SetLoggingIn(false);
             };

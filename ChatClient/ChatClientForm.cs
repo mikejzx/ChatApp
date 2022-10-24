@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -156,6 +157,105 @@ namespace Mikejzx.ChatClient
                 RefreshClientList(m_Client.Clients);
             };
 
+            m_Client.OnCertificateValidationFailed += () =>
+            {
+                NoConnection(true);
+            };
+
+            m_Client.OnCertificateFirstTime += (X509Certificate cert) =>
+            {
+                TaskDialogButton okButton = new TaskDialogButton();
+                okButton.Tag = DialogResult.OK;
+                okButton.Text = "OK";
+
+                TaskDialogButton cancelButton = new TaskDialogButton();
+                cancelButton.Tag = DialogResult.No;
+                cancelButton.Text = "I don't trust this certificate";
+
+                TaskDialogExpander expander = new TaskDialogExpander();
+                expander.Expanded = false;
+                expander.CollapsedButtonText = "Show Certificate Details";
+                expander.ExpandedButtonText = "Hide Certificate Details";
+                expander.Text = $"Certificate details:\n" +
+                                $"    Subject: {cert.Subject}\n" +
+                                $"    Fingerprint: {cert.GetCertHashString()}\n" +
+                                $"    Issued by: {cert.Issuer}\n" +
+                                $"    Issued: {cert.GetEffectiveDateString()}\n" +
+                                $"    Expires: {cert.GetExpirationDateString()}\n";
+
+                TaskDialogPage page = new TaskDialogPage();
+                page.Caption = "Security Information";
+                page.DefaultButton = okButton;
+                page.Expander = expander;
+                page.Heading = "This is your first time connecting to this server";
+                page.Icon = TaskDialogIcon.Information;
+                page.Text = "Click OK if you trust the certificate the server has presented.\n\n" +
+                            "You may wish to review the certificate details and " +
+                            "determine whether you trust it or not.";
+                page.Buttons = new TaskDialogButtonCollection() { okButton, cancelButton };
+
+                if (Program.loginForm is null)
+                    return false;
+
+                TaskDialogButton result = TaskDialog.ShowDialog(Program.loginForm, page);
+
+                if (result.Tag is null)
+                    return false;
+
+                return (DialogResult)result.Tag == DialogResult.OK;
+            };
+
+            m_Client.OnCertificateChanged += (X509Certificate newCert, string oldFingerprint) =>
+            {
+                TaskDialogButton yesButton = new TaskDialogButton();
+                yesButton.Tag = DialogResult.Yes;
+                yesButton.Text = "Trust the new certificate";
+
+                TaskDialogButton noButton = new TaskDialogButton();
+                noButton.Tag = DialogResult.No;
+                noButton.Text = "Reject the new certificate";
+
+                TaskDialogExpander expander = new TaskDialogExpander();
+                expander.Expanded = false;
+                expander.CollapsedButtonText = "Review Certificate Details";
+                expander.ExpandedButtonText = "Hide Certificate Details";
+                expander.Text = $"Trusted certificate details:\n" +
+                                $"    Fingerprint: {oldFingerprint}\n" +
+                                $"\n" +
+                                $"New Certificate details:\n" +
+                                $"    Fingerprint: {newCert.GetCertHashString()}\n" +
+                                $"    Subject: {newCert.Subject}\n" +
+                                $"    Issued by: {newCert.Issuer}\n" +
+                                $"    Issued: {newCert.GetEffectiveDateString()}\n" +
+                                $"    Expires: {newCert.GetExpirationDateString()}\n";
+
+                TaskDialogPage page = new TaskDialogPage();
+                page.Caption = "Security Warning";
+                page.DefaultButton = noButton;
+                page.Expander = expander;
+                page.Heading = "Server sent an unknown certificate";
+                page.Icon = TaskDialogIcon.ShieldErrorRedBar;
+                page.Text = "Do you want trust the new certificate the server has presented?\n\n" +
+                            "This could be due to a man-in-the-middle attack, or more likely, " + 
+                            "the server may have updated their certificate.\n\n" +
+                            "Please review the certificate details below and " +
+                            "determine whether you wish to trust the new certificate or not.\n\n";
+                page.Buttons = new TaskDialogButtonCollection() { yesButton, noButton };
+                page.AllowCancel = false;
+
+                if (Program.loginForm is null)
+                    return false;
+
+                TaskDialogButton result = TaskDialog.ShowDialog(Program.loginForm, 
+                                                                page, 
+                                                                TaskDialogStartupLocation.CenterScreen);
+
+                if (result.Tag is null)
+                    return false;
+
+                return (DialogResult)result.Tag == DialogResult.Yes;
+            };
+
             txtCompose.Focus();
         }
 
@@ -226,6 +326,8 @@ namespace Mikejzx.ChatClient
 
         private void btnSend_Click(object sender, EventArgs e)
         {
+            txtCompose.Focus();
+
             // No text to send
             if (txtCompose.TextLength <= 0)
                 return;
