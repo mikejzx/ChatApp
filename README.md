@@ -2,9 +2,9 @@
 
 Simple chat application written in C#/.NET using WinForms.
 
-![Screenshots/login.png](Login screen)
-![Screenshots/room.png](Rooms demo)
-![Screenshots/direct.png](Direct message demo)
+![Login screen](Screenshots/login.png)
+![Rooms demo](Screenshots/room.png)
+![Direct message demo](Screenshots/direct.png)
 
 # Features
 * Direct messaging
