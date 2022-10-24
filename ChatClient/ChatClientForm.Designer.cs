@@ -39,7 +39,7 @@
             this.lblServer = new System.Windows.Forms.Label();
             this.btnConnect = new System.Windows.Forms.Button();
             this.lblMyName = new System.Windows.Forms.Label();
-            this.lstClients = new Mikejzx.ChatClient.ClientListBox(this.components);
+            this.lstChannels = new Mikejzx.ChatClient.ClientListBox(this.components);
             this.menuStrip = new System.Windows.Forms.MenuStrip();
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.logOutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -71,7 +71,7 @@
             this.label2.Name = "label2";
             this.label2.Size = new System.Drawing.Size(229, 27);
             this.label2.TabIndex = 1;
-            this.label2.Text = "Select user to chat with:";
+            this.label2.Text = "Channels:";
             this.label2.TextAlign = System.Drawing.ContentAlignment.BottomLeft;
             // 
             // btnSend
@@ -115,7 +115,7 @@
             this.splitContainer1.Panel2.Controls.Add(this.lblServer);
             this.splitContainer1.Panel2.Controls.Add(this.btnConnect);
             this.splitContainer1.Panel2.Controls.Add(this.lblMyName);
-            this.splitContainer1.Panel2.Controls.Add(this.lstClients);
+            this.splitContainer1.Panel2.Controls.Add(this.lstChannels);
             this.splitContainer1.Panel2.Controls.Add(this.label2);
             this.splitContainer1.Size = new System.Drawing.Size(776, 411);
             this.splitContainer1.SplitterDistance = 537;
@@ -185,19 +185,19 @@
             this.lblMyName.Text = "Logged in as ...";
             this.lblMyName.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
-            // lstClients
+            // lstChannels
             // 
-            this.lstClients.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            this.lstChannels.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
             | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.lstClients.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lstClients.FormattingEnabled = true;
-            this.lstClients.ItemHeight = 15;
-            this.lstClients.Location = new System.Drawing.Point(3, 33);
-            this.lstClients.Name = "lstClients";
-            this.lstClients.Size = new System.Drawing.Size(229, 317);
-            this.lstClients.TabIndex = 2;
-            this.lstClients.SelectedIndexChanged += new System.EventHandler(this.lstClients_SelectedIndexChanged);
+            this.lstChannels.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.lstChannels.FormattingEnabled = true;
+            this.lstChannels.ItemHeight = 15;
+            this.lstChannels.Location = new System.Drawing.Point(3, 33);
+            this.lstChannels.Name = "lstChannels";
+            this.lstChannels.Size = new System.Drawing.Size(229, 317);
+            this.lstChannels.TabIndex = 2;
+            this.lstChannels.SelectedIndexChanged += new System.EventHandler(this.lstChannels_SelectedIndexChanged);
             // 
             // menuStrip
             // 
@@ -281,7 +281,7 @@
         private TextBox txtCompose;
         private SplitContainer splitContainer1;
         private ReadOnlyRichTextBox txtMessages;
-        private ClientListBox lstClients;
+        private ClientListBox lstChannels;
         private Label lblMyName;
         private Label lblServer;
         private Button btnConnect;

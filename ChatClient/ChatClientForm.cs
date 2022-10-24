@@ -26,7 +26,7 @@ namespace Mikejzx.ChatClient
             txtCompose.Enabled = false;
             btnSend.Enabled = false;
 
-            m_Client.Recipient = null;
+            m_Client.Channel = null;
 
             // When the messages textbox is scrolled to bottom we hide the
             // "Scroll to bottom" button.
@@ -42,7 +42,7 @@ namespace Mikejzx.ChatClient
             };
 
             // We display the DisplayString member of ChatClientRecipient.
-            lstClients.DisplayMember = "DisplayString";
+            lstChannels.DisplayMember = "DisplayString";
 
             m_Client.OnConnectionSuccess += () => { NoConnection(false); };
 
@@ -52,18 +52,18 @@ namespace Mikejzx.ChatClient
 
             m_Client.OnLoginNameChanged += (string name) => { lblMyName.Text = "Logged in as " + name; };
 
-            m_Client.OnClientListUpdate += (Dictionary<string, ChatClientRecipient> clients) =>
+            m_Client.OnChannelListUpdate += () =>
             {
-                RefreshClientList(clients);
+                RefreshChannelsList();
             };
 
             Text = Program.AppName;
 
-            m_Client.OnRecipientChanged += (ChatClientRecipient? recipient) =>
+            m_Client.OnChannelChanged += () =>
             {
                 bool shouldScroll;
 
-                if (recipient is null)
+                if (m_Client.Channel is null)
                 {
                     lblHeading.Text = "";
                     Text = Program.AppName;
@@ -77,15 +77,25 @@ namespace Mikejzx.ChatClient
                     shouldScroll = txtMessages.IsAtMaxScroll();
 
                     // Reset unread count.
-                    recipient.UnreadMessages = 0;
+                    m_Client.Channel.unreadMessages = 0;
 
                     // Refresh the client list to remove the unread messages.
-                    RefreshClientList(m_Client.Clients);
+                    RefreshChannelsList();
 
                     // Update titles.
-                    lblHeading.Text = $"Direct Messages with {recipient.Nickname}:";
+                    if (m_Client.Channel.IsDirect)
+                    {
+                        ChatDirectChannel dc = (ChatDirectChannel)m_Client.Channel;
+                        lblHeading.Text = "Direct Messages with " + dc.Recipient.nickname + ":";
+                        Text = $"{Program.AppName} — {dc.Recipient.nickname}";
+                    }
+                    else
+                    {
+                        ChatRoomChannel rc = (ChatRoomChannel)m_Client.Channel;
+                        lblHeading.Text = rc.channelName + ":";
+                        Text = $"{Program.AppName} — {rc.channelName}";
+                    }
 
-                    Text = $"{Program.AppName} — {recipient.Nickname}";
                     txtCompose.Enabled = true;
                     btnSend.Enabled = true;
 
@@ -93,7 +103,7 @@ namespace Mikejzx.ChatClient
 
                     // Update the text in the messages view to display the current
                     // message history.
-                    foreach (ChatMessage msg in recipient.Messages)
+                    foreach (ChatMessage msg in m_Client.Channel.messages)
                     {
                         txtMessages.Text += msg.ToString() + "\n";
                     }
@@ -105,10 +115,11 @@ namespace Mikejzx.ChatClient
                     txtMessages.ScrollToBottom();
             };
 
-            m_Client.OnMessageReceived += (string channel, ChatMessage msg) => 
+            m_Client.OnDirectMessageReceived += (ChatDirectChannel channel, ChatMessage msg) => 
             {
-                // Append message to the messages list (if we are on the user's channel).
-                if (m_Client.Recipient == channel)
+                // Append message to the messages list (if we are in the user's
+                // direct message channel).
+                if (m_Client.Channel == channel)
                 {
                     bool shouldScroll = txtMessages.IsAtMaxScroll();
 
@@ -123,38 +134,38 @@ namespace Mikejzx.ChatClient
                 return false;
             };
 
-            m_Client.OnClientJoin += (ChatClientRecipient recipient, ChatMessage msg) =>
+            m_Client.OnClientJoinCurrentChannel += (ChatRecipient recipient, ChatMessage msg) =>
             {
                 // Show message to indicate client joining the server.
-                if (m_Client.Recipient == recipient.Nickname)
-                {
-                    bool shouldScroll = txtMessages.IsAtMaxScroll();
-
-                    txtMessages.Text += msg.ToString() + "\n";
-
-                    if (shouldScroll)
-                        txtMessages.ScrollToBottom();
-                }
-
-                // Refresh the client list to update offline status.
-                RefreshClientList(m_Client.Clients);
-            };
-
-            m_Client.OnClientLeave += (ChatClientRecipient recipient, ChatMessage msg) =>
-            {
                 bool shouldScroll = txtMessages.IsAtMaxScroll();
 
+                txtMessages.Text += msg.ToString() + "\n";
+
+                if (shouldScroll)
+                    txtMessages.ScrollToBottom();
+            };
+
+            m_Client.OnClientJoin += (ChatRecipient recipient) =>
+            {
+                // Refresh the channel list to update offline statuses.
+                RefreshChannelsList();
+            };
+
+            m_Client.OnClientLeaveCurrentChannel += (ChatRecipient recipient, ChatMessage msg) =>
+            {
                 // Show message to indicate client leaving the server.
-                if (m_Client.Recipient == recipient.Nickname)
-                {
-                    txtMessages.Text += msg.ToString() + "\n";
+                bool shouldScroll = txtMessages.IsAtMaxScroll();
 
-                    if (shouldScroll)
-                        txtMessages.ScrollToBottom();
-                }
+                txtMessages.Text += msg.ToString() + "\n";
 
-                // Refresh the client list to update offline status.
-                RefreshClientList(m_Client.Clients);
+                if (shouldScroll)
+                    txtMessages.ScrollToBottom();
+            };
+
+            m_Client.OnClientLeave += (ChatRecipient recipient) =>
+            {
+                // Refresh the channel list to update offline statuses.
+                RefreshChannelsList();
             };
 
             m_Client.OnCertificateValidationFailed += () =>
@@ -267,41 +278,29 @@ namespace Mikejzx.ChatClient
             btnConnect.Text = notConnected ? "Reconnect" : "Connected";
         }
 
-        private void RefreshClientList(Dictionary<string, ChatClientRecipient> clients)
+        private void RefreshChannelsList()
         {
-            // Update the client list control.
-            lstClients.Items.Clear();
-            foreach (ChatClientRecipient client in clients.Values)
-            {
-                // Skip ourself
-                if (client.Nickname == m_Client.Nickname)
-                    continue;
+            ChatChannel oldChannel = (ChatChannel)lstChannels.SelectedItem;
 
-                // Add all other users.
-                lstClients.Items.Add(client);
+            // Update the client list control.
+            lstChannels.Items.Clear();
+            foreach (ChatChannel channel in m_Client.Channels)
+            {
+                lstChannels.Items.Add(channel);
             }
 
-            if (m_Client.Recipient is null)
+            lstChannels.NoEvents = true;
+            if (m_Client.Channel is null)
             {
                 // No selected recipient.
-                lstClients.NoEvents = true;
-                lstClients.SelectedItem = null;
-                lstClients.NoEvents = false;
+                lstChannels.SelectedItem = null;
             }
             else
             {
-                // Select the client we are chatting with.
-                foreach (ChatClientRecipient client in lstClients.Items)
-                {
-                    if (client.Nickname == m_Client.Recipient)
-                    {
-                        lstClients.NoEvents = true;
-                        lstClients.SelectedItem = client;
-                        lstClients.NoEvents = false;
-                        break;
-                    }
-                }
+                // Select the channel we were on.
+                lstChannels.SelectedItem = oldChannel;
             }
+            lstChannels.NoEvents = false;
         }
 
         private void ChatClientForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -310,17 +309,17 @@ namespace Mikejzx.ChatClient
             Program.CheckForExit();
         }
 
-        private void lstClients_SelectedIndexChanged(object sender, EventArgs e)
+        private void lstChannels_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (lstClients.SelectedItem is null)
+            if (lstChannels.SelectedItem is null)
             {
-                m_Client.Recipient = null;
+                m_Client.Channel = null;
             }
             else
             {
-                // Set the new recipient.
-                ChatClientRecipient recipient = (ChatClientRecipient)lstClients.SelectedItem;
-                m_Client.Recipient = recipient.Nickname;
+                // Set the channel
+                ChatChannel channel = (ChatChannel)lstChannels.SelectedItem;
+                m_Client.Channel = channel;
             }
         }
 
