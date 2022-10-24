@@ -16,8 +16,6 @@ namespace Mikejzx.ChatServer
         // List of clients that are connected to the server.
         private Dictionary<string, ChatServerClient> m_Clients = new Dictionary<string, ChatServerClient>();
 
-        private static readonly string CertificatePath = "cert.pfx";
-
         // Sync objects
         private readonly object clientSync = new object();
 
@@ -69,19 +67,21 @@ namespace Mikejzx.ChatServer
             }
         }
 
-        public void Run()
+        public void Run(string certificatePath)
         {
             Console.WriteLine("Starting server ...");
+
+            Console.WriteLine($"Using certificate '{certificatePath}'");
 
             // Read certificate file.
             try
             {
-                m_Certificate = new X509Certificate2(CertificatePath);
+                m_Certificate = new X509Certificate2(certificatePath);
             }
             catch (Exception e)
             {
                 Console.WriteLine($"Exception: {e.Message}");
-                Console.WriteLine($"Failed to read server certificate file {CertificatePath}");
+                Console.WriteLine($"Failed to read server certificate file {certificatePath}");
                 Console.ReadKey();
                 return;
             }
