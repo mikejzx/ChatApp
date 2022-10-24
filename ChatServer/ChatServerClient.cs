@@ -21,6 +21,9 @@ namespace Mikejzx.ChatServer
         public BinaryWriter Writer { get => m_Writer; }
         public BinaryReader Reader { get => m_Reader; }
 
+        private List<ChatRoom> m_Rooms = new List<ChatRoom>();
+        public List<ChatRoom> Rooms { get => m_Rooms; }
+
         private Thread m_Thread;
         private bool m_StopThread = false;
 
@@ -47,6 +50,8 @@ namespace Mikejzx.ChatServer
             m_Writer = new BinaryWriter(m_Stream, Encoding.UTF8);
             m_Reader = new BinaryReader(m_Stream, Encoding.UTF8);
 
+            m_Rooms = new List<ChatRoom>();
+
             lock(m_DisconnectSync)
                 m_Disconnected = false;
 
@@ -60,7 +65,7 @@ namespace Mikejzx.ChatServer
 
         private void HandlePacket(Packet packet)
         {
-            switch(packet.PacketType)
+            switch (packet.PacketType)
             {
                 // Client is disconnecting
                 case PacketType.ClientDisconnect:
@@ -72,6 +77,7 @@ namespace Mikejzx.ChatServer
 
                 // Client is sending a direct message to a user.
                 case PacketType.ClientDirectMessage:
+                {
                     string recipientName = packet.ReadString();
                     string msg = packet.ReadString();
 
@@ -96,14 +102,47 @@ namespace Mikejzx.ChatServer
                         }
 
                         // Send to the sender to indicate that their message was sent.
-                        lock(sendSync)
+                        lock (sendSync)
                         {
                             packet2.WriteToStream(Writer);
                             Writer.Flush();
                         }
                     }
+                    break;
+                }
+
+                // Client is sending a message to a room.
+                case PacketType.ClientRoomMessage:
+                {
+                    string roomName = packet.ReadString();
+                    string msg = packet.ReadString();
+
+                    Console.WriteLine($"{Nickname} --> {roomName} (room): {msg}");
+
+                    ChatRoom? room = m_Server.GetRoom(roomName);
+                    if (room is null)
+                        break;
+
+                    // Send message to everyone in the room
+                    using (Packet packet2 = new Packet(PacketType.ServerRoomMessageReceived))
+                    {
+                        packet2.Write(Nickname);
+                        packet2.Write(roomName);
+                        packet2.Write(msg);
+
+                        // Send the message to all clients who are in the room.
+                        foreach(ChatServerClient client in room.clients)
+                        {
+                            lock(client.sendSync)
+                            {
+                                packet2.WriteToStream(client.Writer);
+                                client.Writer.Flush();
+                            }
+                        }
+                    }
 
                     break;
+                } 
             }
         }
 
@@ -174,6 +213,35 @@ namespace Mikejzx.ChatServer
                     m_Server.EnumerateClients((ChatServerClient client) =>
                     {
                         packet.Write(client.Nickname);
+                    });
+
+                    lock (sendSync)
+                    {
+                        packet.WriteToStream(Writer);
+                        Writer.Flush();
+                    }
+                }
+
+                // Send the room list to the client.
+                using (packet = new Packet(PacketType.ServerRoomList))
+                {
+                    // Write room count.
+                    packet.Write(m_Server.RoomCount);
+
+                    // Write rooms
+                    m_Server.EnumerateRooms((ChatRoom room) =>
+                    {
+                        // Write room name
+                        packet.Write(room.name);
+
+                        // Write client count
+                        packet.Write(room.clients.Count);
+
+                        // Write client names.
+                        foreach (ChatServerClient client in room.clients)
+                        {
+                            packet.Write(client.Nickname);
+                        }
                     });
 
                     lock (sendSync)
@@ -271,7 +339,7 @@ namespace Mikejzx.ChatServer
         {
             if (!string.IsNullOrEmpty(Nickname))
             { 
-                Console.WriteLine(Nickname + "disconnected.");
+                Console.WriteLine(Nickname + " disconnected.");
                 m_Server.RemoveClient(this);
             }
 

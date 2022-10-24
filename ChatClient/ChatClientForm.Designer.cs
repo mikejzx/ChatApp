@@ -36,10 +36,12 @@
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
             this.btnScrollToBottom = new System.Windows.Forms.Button();
             this.txtMessages = new Mikejzx.ChatClient.ReadOnlyRichTextBox(this.components);
+            this.lstRooms = new Mikejzx.ChatClient.ChannelListBox(this.components);
+            this.lstChannels = new Mikejzx.ChatClient.ChannelListBox(this.components);
+            this.label1 = new System.Windows.Forms.Label();
             this.lblServer = new System.Windows.Forms.Label();
             this.btnConnect = new System.Windows.Forms.Button();
             this.lblMyName = new System.Windows.Forms.Label();
-            this.lstChannels = new Mikejzx.ChatClient.ClientListBox(this.components);
             this.menuStrip = new System.Windows.Forms.MenuStrip();
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.logOutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -67,11 +69,11 @@
             // 
             // label2
             // 
-            this.label2.Location = new System.Drawing.Point(3, 3);
+            this.label2.Location = new System.Drawing.Point(3, 130);
             this.label2.Name = "label2";
-            this.label2.Size = new System.Drawing.Size(229, 27);
+            this.label2.Size = new System.Drawing.Size(229, 20);
             this.label2.TabIndex = 1;
-            this.label2.Text = "Channels:";
+            this.label2.Text = "Direct Messages:";
             this.label2.TextAlign = System.Drawing.ContentAlignment.BottomLeft;
             // 
             // btnSend
@@ -112,10 +114,12 @@
             // 
             // splitContainer1.Panel2
             // 
+            this.splitContainer1.Panel2.Controls.Add(this.lstRooms);
+            this.splitContainer1.Panel2.Controls.Add(this.lstChannels);
+            this.splitContainer1.Panel2.Controls.Add(this.label1);
             this.splitContainer1.Panel2.Controls.Add(this.lblServer);
             this.splitContainer1.Panel2.Controls.Add(this.btnConnect);
             this.splitContainer1.Panel2.Controls.Add(this.lblMyName);
-            this.splitContainer1.Panel2.Controls.Add(this.lstChannels);
             this.splitContainer1.Panel2.Controls.Add(this.label2);
             this.splitContainer1.Size = new System.Drawing.Size(776, 411);
             this.splitContainer1.SplitterDistance = 537;
@@ -151,6 +155,35 @@
             this.txtMessages.TabStop = false;
             this.txtMessages.Text = "";
             // 
+            // lstRooms
+            // 
+            this.lstRooms.FormattingEnabled = true;
+            this.lstRooms.ItemHeight = 15;
+            this.lstRooms.Location = new System.Drawing.Point(3, 33);
+            this.lstRooms.Name = "lstRooms";
+            this.lstRooms.Size = new System.Drawing.Size(229, 94);
+            this.lstRooms.TabIndex = 8;
+            this.lstRooms.SelectedIndexChanged += new System.EventHandler(this.lstRooms_SelectedIndexChanged);
+            // 
+            // lstChannels
+            // 
+            this.lstChannels.FormattingEnabled = true;
+            this.lstChannels.ItemHeight = 15;
+            this.lstChannels.Location = new System.Drawing.Point(3, 153);
+            this.lstChannels.Name = "lstChannels";
+            this.lstChannels.Size = new System.Drawing.Size(229, 199);
+            this.lstChannels.TabIndex = 7;
+            this.lstChannels.SelectedIndexChanged += new System.EventHandler(this.lstChannels_SelectedIndexChanged);
+            // 
+            // label1
+            // 
+            this.label1.Location = new System.Drawing.Point(3, 3);
+            this.label1.Name = "label1";
+            this.label1.Size = new System.Drawing.Size(229, 27);
+            this.label1.TabIndex = 6;
+            this.label1.Text = "Rooms:";
+            this.label1.TextAlign = System.Drawing.ContentAlignment.BottomLeft;
+            // 
             // lblServer
             // 
             this.lblServer.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
@@ -184,20 +217,6 @@
             this.lblMyName.TabIndex = 3;
             this.lblMyName.Text = "Logged in as ...";
             this.lblMyName.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            // 
-            // lstChannels
-            // 
-            this.lstChannels.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
-            | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.lstChannels.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lstChannels.FormattingEnabled = true;
-            this.lstChannels.ItemHeight = 15;
-            this.lstChannels.Location = new System.Drawing.Point(3, 33);
-            this.lstChannels.Name = "lstChannels";
-            this.lstChannels.Size = new System.Drawing.Size(229, 317);
-            this.lstChannels.TabIndex = 2;
-            this.lstChannels.SelectedIndexChanged += new System.EventHandler(this.lstChannels_SelectedIndexChanged);
             // 
             // menuStrip
             // 
@@ -281,7 +300,6 @@
         private TextBox txtCompose;
         private SplitContainer splitContainer1;
         private ReadOnlyRichTextBox txtMessages;
-        private ClientListBox lstChannels;
         private Label lblMyName;
         private Label lblServer;
         private Button btnConnect;
@@ -292,5 +310,8 @@
         private ToolStripMenuItem aboutToolStripMenuItem;
         private ToolStripMenuItem logOutToolStripMenuItem;
         private Button btnScrollToBottom;
+        private Label label1;
+        private ChannelListBox lstChannels;
+        private ChannelListBox lstRooms;
     }
 }

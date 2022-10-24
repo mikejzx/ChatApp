@@ -43,6 +43,7 @@ namespace Mikejzx.ChatClient
 
             // We display the DisplayString member of ChatClientRecipient.
             lstChannels.DisplayMember = "DisplayString";
+            lstRooms.DisplayMember = "DisplayString";
 
             m_Client.OnConnectionSuccess += () => { NoConnection(false); };
 
@@ -92,8 +93,8 @@ namespace Mikejzx.ChatClient
                     else
                     {
                         ChatRoomChannel rc = (ChatRoomChannel)m_Client.Channel;
-                        lblHeading.Text = rc.channelName + ":";
-                        Text = $"{Program.AppName} — {rc.channelName}";
+                        lblHeading.Text = rc.roomName + ":";
+                        Text = $"{Program.AppName} — {rc.roomName}";
                     }
 
                     txtCompose.Enabled = true;
@@ -115,7 +116,7 @@ namespace Mikejzx.ChatClient
                     txtMessages.ScrollToBottom();
             };
 
-            m_Client.OnDirectMessageReceived += (ChatDirectChannel channel, ChatMessage msg) => 
+            m_Client.OnMessageReceived += (ChatChannel channel, ChatMessage msg) => 
             {
                 // Append message to the messages list (if we are in the user's
                 // direct message channel).
@@ -166,6 +167,28 @@ namespace Mikejzx.ChatClient
             {
                 // Refresh the channel list to update offline statuses.
                 RefreshChannelsList();
+            };
+
+            m_Client.OnClientJoinCurrentRoom += (ChatRecipient recipient, ChatMessage msg) =>
+            {
+                // Show message to indicate client joining the room.
+                bool shouldScroll = txtMessages.IsAtMaxScroll();
+
+                txtMessages.Text += msg.ToString() + "\n";
+
+                if (shouldScroll)
+                    txtMessages.ScrollToBottom();
+            };
+
+            m_Client.OnClientLeaveCurrentRoom += (ChatRecipient recipient, ChatMessage msg) =>
+            {
+                // Show message to indicate client leaving the room.
+                bool shouldScroll = txtMessages.IsAtMaxScroll();
+
+                txtMessages.Text += msg.ToString() + "\n";
+
+                if (shouldScroll)
+                    txtMessages.ScrollToBottom();
             };
 
             m_Client.OnCertificateValidationFailed += () =>
@@ -280,27 +303,35 @@ namespace Mikejzx.ChatClient
 
         private void RefreshChannelsList()
         {
-            ChatChannel oldChannel = (ChatChannel)lstChannels.SelectedItem;
-
-            // Update the client list control.
+            // Update channel list controls.
             lstChannels.Items.Clear();
+            lstRooms.Items.Clear();
             foreach (ChatChannel channel in m_Client.Channels)
             {
-                lstChannels.Items.Add(channel);
+                if (channel.IsDirect)
+                    lstChannels.Items.Add(channel);
+                else
+                    lstRooms.Items.Add(channel);
             }
 
             lstChannels.NoEvents = true;
+            lstRooms.NoEvents = true;
             if (m_Client.Channel is null)
             {
                 // No selected recipient.
                 lstChannels.SelectedItem = null;
+                lstRooms.SelectedItem = null;
             }
             else
             {
-                // Select the channel we were on.
-                lstChannels.SelectedItem = oldChannel;
+                // Select the channel we are on.
+                if (m_Client.Channel.IsDirect)
+                    lstChannels.SelectedItem = m_Client.Channel;
+                else
+                    lstRooms.SelectedItem = m_Client.Channel;
             }
             lstChannels.NoEvents = false;
+            lstRooms.NoEvents = false;
         }
 
         private void ChatClientForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -319,6 +350,20 @@ namespace Mikejzx.ChatClient
             {
                 // Set the channel
                 ChatChannel channel = (ChatChannel)lstChannels.SelectedItem;
+                m_Client.Channel = channel;
+            }
+        }
+
+        private void lstRooms_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (lstRooms.SelectedItem is null)
+            {
+                m_Client.Channel = null;
+            }
+            else
+            {
+                // Set the channel
+                ChatChannel channel = (ChatChannel)lstRooms.SelectedItem;
                 m_Client.Channel = channel;
             }
         }

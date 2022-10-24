@@ -2,16 +2,16 @@
 
 namespace Mikejzx.ChatClient
 {
-    public partial class ClientListBox : ListBox
+    public partial class ChannelListBox : ListBox
     {
         public bool NoEvents = false;
 
-        public ClientListBox()
+        public ChannelListBox()
         {
             InitializeComponent();
         }
 
-        public ClientListBox(IContainer container)
+        public ChannelListBox(IContainer container)
         {
             container.Add(this);
 

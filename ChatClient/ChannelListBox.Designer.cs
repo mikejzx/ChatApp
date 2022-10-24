@@ -1,6 +1,6 @@
 ﻿namespace Mikejzx.ChatClient
 {
-    partial class ClientListBox
+    partial class ChannelListBox
     {
         /// <summary>
         /// Required designer variable.

@@ -16,8 +16,14 @@ namespace Mikejzx.ChatServer
         // List of clients that are connected to the server.
         private Dictionary<string, ChatServerClient> m_Clients = new Dictionary<string, ChatServerClient>();
 
+        // List of rooms in the server.
+        private Dictionary<string, ChatRoom> m_Rooms = new Dictionary<string, ChatRoom>();
+
         // Sync objects
         private readonly object clientSync = new object();
+        private readonly object roomSync = new object();
+
+        public static readonly string MainRoomName = "Main Room";
 
         // Get number of clients that are in the server.
         public int ClientCount
@@ -53,6 +59,40 @@ namespace Mikejzx.ChatServer
             }
         }
 
+        // Get number of rooms that are in the server.
+        public int RoomCount
+        {
+            get
+            {
+                lock (roomSync)
+                    return m_Rooms.Count;
+            }
+        }
+
+        // Enumerate room list
+        public void EnumerateRooms(Action<ChatRoom> action)
+        {
+            lock(roomSync)
+            {
+                foreach (ChatRoom room in m_Rooms.Values)
+                {
+                    action.Invoke(room);
+                }
+            }
+        }
+
+        // Get room by name.
+        public ChatRoom? GetRoom(string roomName)
+        {
+            lock (roomSync)
+            {
+                if (!m_Rooms.ContainsKey(roomName))
+                    return null;
+
+                return m_Rooms[roomName];
+            }
+        }
+
         public void Cleanup()
         {
             Console.WriteLine("Shutting down the server ...");
@@ -85,6 +125,10 @@ namespace Mikejzx.ChatServer
                 Console.ReadKey();
                 return;
             }
+
+            // Create the main room that all users are in by default.
+            m_Rooms.Clear();
+            m_Rooms.Add(MainRoomName, new ChatRoom(MainRoomName));
 
             // Create TCP listener socket.
             TcpListener listener;
@@ -148,6 +192,35 @@ namespace Mikejzx.ChatServer
             }
         }
 
+        internal void AddClientToRoom(ChatServerClient client, ChatRoom room)
+        {
+            lock(roomSync)
+            {
+                // Send join message to all other clients in the room.
+                using (Packet packet = new Packet(PacketType.ServerClientRoomJoin))
+                {
+                    packet.Write(room.name);
+                    packet.Write(client.Nickname);
+
+                    foreach (ChatServerClient client2 in room.clients)
+                    {
+                        lock(client2.sendSync)
+                        {
+                            packet.WriteToStream(client2.Writer);
+                            client2.Writer.Flush();
+                        }
+                    }
+                }
+
+                // Add the client to the room list.
+                room.clients.Add(client);
+
+                // And add room to client's internal list.
+                lock(clientSync)
+                    client.Rooms.Add(room);
+            }
+        }
+
         internal void AddClient(ChatServerClient client)
         {
             lock(clientSync)
@@ -166,6 +239,9 @@ namespace Mikejzx.ChatServer
                         }
                     }
                 }
+
+                // Add client to the main room
+                AddClientToRoom(client, m_Rooms[MainRoomName]);
                 
                 m_Clients[client.Nickname] = client;
             }
@@ -173,10 +249,47 @@ namespace Mikejzx.ChatServer
             Console.WriteLine($"{client.Nickname} joined the server.");
         }
 
+        internal void RemoveClientFromRoom(ChatServerClient client, ChatRoom room)
+        {
+            lock(roomSync)
+            {
+                // Remove the client from the room list.
+                room.clients.Remove(client);
+
+                // Remove room from client's list.
+                lock(clientSync)
+                    client.Rooms.Remove(room);
+
+                // Send leave message to the other clients in the room.
+                using (Packet packet = new Packet(PacketType.ServerClientRoomLeave))
+                {
+                    packet.Write(room.name);
+                    packet.Write(client.Nickname);
+
+                    foreach (ChatServerClient client2 in room.clients)
+                    {
+                        lock(client2.sendSync)
+                        {
+                            packet.WriteToStream(client2.Writer);
+                            client2.Writer.Flush();
+                        }
+                    }
+                }
+            }
+        }
+
         internal bool RemoveClient(ChatServerClient client)
         {
             lock(clientSync)
             {
+                // Remove client from it's rooms
+                List<ChatRoom> roomsTmp = new List<ChatRoom>(client.Rooms);
+                foreach (ChatRoom room in roomsTmp)
+                {
+                    RemoveClientFromRoom(client, room);
+                }
+
+                // Remove the client from the client list.
                 bool rc = m_Clients.Remove(client.Nickname);
 
                 if (rc)

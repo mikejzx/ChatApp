@@ -10,7 +10,7 @@
     <Compile Update="ChatClientLoginForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="ClientListBox.cs">
+    <Compile Update="ChannelListBox.cs">
       <SubType>Component</SubType>
     </Compile>
     <Compile Update="ReadOnlyRichTextBox.cs">

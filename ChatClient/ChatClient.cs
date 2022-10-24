@@ -74,11 +74,15 @@ namespace Mikejzx.ChatClient
         public Action<string>? OnError;
         public Action? OnChannelListUpdate;
         public Action? OnChannelChanged;
-        public Func<ChatDirectChannel, ChatMessage, bool>? OnDirectMessageReceived;
+        public Func<ChatChannel, ChatMessage, bool>? OnMessageReceived;
         public Action<ChatRecipient>? OnClientLeave;
         public Action<ChatRecipient>? OnClientJoin;
         public Action<ChatRecipient, ChatMessage>? OnClientLeaveCurrentChannel;
         public Action<ChatRecipient, ChatMessage>? OnClientJoinCurrentChannel;
+        public Action<ChatRecipient>? OnClientLeaveRoom;
+        public Action<ChatRecipient>? OnClientJoinRoom;
+        public Action<ChatRecipient, ChatMessage>? OnClientLeaveCurrentRoom;
+        public Action<ChatRecipient, ChatMessage>? OnClientJoinCurrentRoom;
         public Func<X509Certificate, string, bool>? OnCertificateChanged;
         public Func<X509Certificate, bool>? OnCertificateFirstTime;
         public Action? OnCertificateValidationFailed;
@@ -116,17 +120,41 @@ namespace Mikejzx.ChatClient
                 return;
 
             // Create the message packet
-            using (Packet packet = new Packet(PacketType.ClientDirectMessage))
+            if (Channel.IsDirect)
             {
-                // Write recipient name
-                packet.Write(((ChatDirectChannel)Channel).Recipient.nickname);
+                ChatDirectChannel dc = (ChatDirectChannel)Channel;
+                
+                // Send direct message
+                using (Packet packet = new Packet(PacketType.ClientDirectMessage))
+                {
+                    // Write recipient name
+                    packet.Write(dc.Recipient.nickname);
 
-                // Write the message
-                packet.Write(message);
+                    // Write the message
+                    packet.Write(message);
 
-                // Send to server.
-                packet.WriteToStream(m_Writer);
-                m_Writer.Flush();
+                    // Send to server.
+                    packet.WriteToStream(m_Writer);
+                    m_Writer.Flush();
+                }
+            }
+            else
+            {
+                ChatRoomChannel rc = (ChatRoomChannel)Channel;
+
+                // Send room message
+                using (Packet packet = new Packet(PacketType.ClientRoomMessage))
+                {
+                    // Write room name
+                    packet.Write(rc.roomName);
+
+                    // Write the message
+                    packet.Write(message);
+
+                    // Send to the server.
+                    packet.WriteToStream(m_Writer);
+                    m_Writer.Flush();
+                }
             }
         }
 
@@ -400,43 +428,92 @@ namespace Mikejzx.ChatClient
                     break;
                 }
 
+                // Server sends us current room list.
+                case PacketType.ServerRoomList:
+                {
+                    int count = packet.ReadInt32();
+
+                    // Clear old rooms.
+                    foreach (ChatChannel channel in Channels)
+                    {
+                        if (!channel.IsDirect)
+                            Channels.Remove(channel);
+                    }
+
+                    for (int i = 0; i < count; ++i)
+                    {
+                        string roomName = packet.ReadString();
+
+                        // Create channel for the room.
+                        ChatRoomChannel channel = new ChatRoomChannel(roomName);
+                        Channels.Add(channel);
+
+                        // Add clients/recipients to the room
+                        int clientCount = packet.ReadInt32();
+                        for (int j = 0; j < clientCount; ++j)
+                        {
+                            string clientName = packet.ReadString();
+
+                            // Skip ourself
+                            if (clientName == Nickname)
+                                continue;
+
+                            // Ensure we have this client.
+                            if (!m_Clients.ContainsKey(clientName))
+                            {
+                                ShowError($"Room contains unknown user {clientName}");
+                                continue;
+                            }
+
+                            // Add the client to the channel
+                            channel.recipients.Add(m_Clients[clientName]);
+                        }
+                    }
+
+                    // Update channel list.
+                    if (Form is not null && OnChannelListUpdate is not null)
+                        Form.Invoke(OnChannelListUpdate);
+
+                    break;
+                }
+
                 // Server tells us that a client joined.
                 case PacketType.ServerClientJoin:
                 { 
                     // Read their nickname
-                    string joinedNickname = packet.ReadString();
+                    string nickname = packet.ReadString();
 
                     // Skip ourself just to be safe.
-                    if (joinedNickname == Nickname)
+                    if (nickname == Nickname)
                         break;
 
                     // Add the client (or set it as joined if they are unjoined).
-                    if (!m_Clients.ContainsKey(joinedNickname))
+                    if (!m_Clients.ContainsKey(nickname))
                     {
-                        ChatRecipient joinedRecipient = new ChatRecipient(joinedNickname, true);
-                        m_Clients.Add(joinedNickname, joinedRecipient);
+                        ChatRecipient joinedRecipient = new ChatRecipient(nickname, true);
+                        m_Clients.Add(nickname, joinedRecipient);
 
                         // Create a direct channel for the user
                         Channels.Add(new ChatDirectChannel(joinedRecipient));
                     }
                     else
                     {
-                        m_Clients[joinedNickname].isJoined = true;
+                        m_Clients[nickname].isJoined = true;
                     }
 
                     // Iterate over the channels that the joining client is a
                     // part of (e.g. it's direct-message channel).
                     foreach (ChatChannel c in Channels)
                     {
-                        if (!c.ContainsRecipient(m_Clients[joinedNickname]))
+                        if (!c.ContainsRecipient(m_Clients[nickname]))
                             continue;
 
                         // Append join message
-                        ChatMessage joinMsg = c.AddMessage(ChatMessageType.UserJoin, joinedNickname);
+                        ChatMessage msg = c.AddMessage(ChatMessageType.UserJoin, nickname);
 
                         // Update active channel message list.
                         if (c == Channel && Form is not null && OnClientJoinCurrentChannel is not null)
-                            Form.Invoke(OnClientJoinCurrentChannel, m_Clients[joinedNickname], joinMsg);
+                            Form.Invoke(OnClientJoinCurrentChannel, m_Clients[nickname], msg);
                     }
 
                     // Run channel list change callback.
@@ -445,7 +522,7 @@ namespace Mikejzx.ChatClient
 
                     // Run client join callback
                     if (Form is not null && OnClientJoin is not null)
-                        Form.Invoke(OnClientJoin, m_Clients[joinedNickname]);
+                        Form.Invoke(OnClientJoin, m_Clients[nickname]);
 
                     break;
                 }
@@ -454,36 +531,132 @@ namespace Mikejzx.ChatClient
                 case PacketType.ServerClientLeave:
                 { 
                     // Read their nickname
-                    string leaveNickname = packet.ReadString();
+                    string nickname = packet.ReadString();
 
                     // Skip ourself just to be safe.
-                    if (leaveNickname == Nickname)
+                    if (nickname == Nickname)
                         break;
 
                     // Unknown client left
-                    if (!m_Clients.ContainsKey(leaveNickname))
+                    if (!m_Clients.ContainsKey(nickname))
                         break;
 
                     // Set client as unjoined.
-                    m_Clients[leaveNickname].isJoined = false;
+                    m_Clients[nickname].isJoined = false;
 
-                    // Append unjoin message to all channels relevant to the client.
+                    // Append unjoin message to all channels that are relevant
+                    // to the client.
                     foreach (ChatChannel c in Channels)
                     {
-                        if (!c.ContainsRecipient(m_Clients[leaveNickname]))
+                        if (!c.ContainsRecipient(m_Clients[nickname]))
                             continue;
 
                         // Append join message
-                        ChatMessage leaveMsg = c.AddMessage(ChatMessageType.UserLeave, leaveNickname);
+                        ChatMessage msg = c.AddMessage(ChatMessageType.UserLeave, nickname);
 
                         // Update active channel message list.
                         if (c == Channel && Form is not null && OnClientLeaveCurrentChannel is not null)
-                            Form.Invoke(OnClientLeaveCurrentChannel, m_Clients[leaveNickname], leaveMsg);
+                            Form.Invoke(OnClientLeaveCurrentChannel, m_Clients[nickname], msg);
                     }
 
                     // Run client exit callback
                     if (Form is not null && OnClientLeave is not null)
-                        Form.Invoke(OnClientLeave, m_Clients[leaveNickname]);
+                        Form.Invoke(OnClientLeave, m_Clients[nickname]);
+
+                    break;
+                }
+
+                // Server tells us that a client joined the room.
+                case PacketType.ServerClientRoomJoin:
+                {
+                    // Read their nickname
+                    string roomName = packet.ReadString();
+                    string nickname = packet.ReadString();
+
+                    // Skip ourself just to be safe.
+                    if (nickname == Nickname)
+                        break;
+
+                    // Get room
+                    ChatRoomChannel? room = null;
+                    foreach (ChatChannel channel in m_Channels)
+                    {
+                        if (!channel.IsDirect && 
+                            ((ChatRoomChannel)channel).roomName == roomName)
+                        {
+                            room = (ChatRoomChannel)channel;
+                        }
+                    }
+
+                    // Left unknown room.
+                    if (room is null)
+                        break;
+
+                    // Unknown client joined
+                    if (!m_Clients.ContainsKey(nickname))
+                        break;
+
+                    // Append join message
+                    ChatMessage msg = room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
+
+                    if (Form is not null)
+                    {
+                        // Update active channel message list.
+                        if (room == Channel && OnClientJoinCurrentRoom is not null)
+                            Form.Invoke(OnClientJoinCurrentRoom, m_Clients[nickname], msg);
+
+                        // Run client join callback
+                        if (OnClientJoinRoom is not null)
+                            Form.Invoke(OnClientJoinRoom, m_Clients[nickname]);
+                    }
+
+                    break;
+                }
+
+                // Server tells us that a client left the room.
+                case PacketType.ServerClientRoomLeave:
+                {
+                    // Read their nickname
+                    string roomName = packet.ReadString();
+                    string nickname = packet.ReadString();
+
+                    // Skip ourself just to be safe.
+                    if (nickname == Nickname)
+                        break;
+
+                    // Get room
+                    ChatRoomChannel? room = null;
+                    foreach (ChatChannel channel in m_Channels)
+                    {
+                        if (!channel.IsDirect && 
+                            ((ChatRoomChannel)channel).roomName == roomName)
+                        {
+                            room = (ChatRoomChannel)channel;
+                        }
+                    }
+
+                    // Left unknown room.
+                    if (room is null)
+                        break;
+
+                    // Unknown client left
+                    if (!m_Clients.ContainsKey(nickname) || 
+                        !room.ContainsRecipient(nickname))
+                        break;
+
+                    // Append leave message
+                    ChatMessage msg = room.AddMessage(ChatMessageType.UserLeaveRoom, nickname);
+
+                    if (Form is not null)
+                    {
+                        // Update active channel message list.
+                        if (room == Channel && OnClientLeaveCurrentRoom is not null)
+                            Form.Invoke(OnClientLeaveCurrentRoom, m_Clients[nickname], msg);
+
+                        // Run client leave callback
+                        if (OnClientLeaveRoom is not null)
+                            Form.Invoke(OnClientLeaveRoom, m_Clients[nickname]);
+                    }
 
                     break;
                 }
@@ -520,7 +693,7 @@ namespace Mikejzx.ChatClient
 
                     if (channel is null)
                     { 
-                        ShowError($"Received message from unknown user {channel}.");
+                        ShowError($"Received message from unknown user {channelName}.");
                         break;
                     }
 
@@ -528,9 +701,9 @@ namespace Mikejzx.ChatClient
                                                                   sender, 
                                                                   message);
 
-                    if (Form is not null && OnDirectMessageReceived is not null)
+                    if (Form is not null && OnMessageReceived is not null)
                     {
-                        if (!(bool)Form.Invoke(OnDirectMessageReceived, channel, addedMessage))
+                        if (!(bool)Form.Invoke(OnMessageReceived, channel, addedMessage))
                         {
                             ++channel.unreadMessages;
 
@@ -542,6 +715,53 @@ namespace Mikejzx.ChatClient
 
                     break;
                 }
+
+                case PacketType.ServerRoomMessageReceived:
+                {
+                    // Read who the message was sent from.
+                    string sender = packet.ReadString();
+
+                    // Read room that message was sent to.
+                    string roomName = packet.ReadString();
+
+                    // Read the message itself.
+                    string message = packet.ReadString();
+
+                    // Append to the room's message list.
+                    ChatChannel? channel = null;
+                    foreach (ChatChannel channel2 in Channels)
+                    {
+                        if (!channel2.IsDirect && ((ChatRoomChannel)channel2).roomName == roomName)
+                        {
+                            channel = channel2;
+                            break;
+                        }
+                    }
+
+                    if (channel is null)
+                    { 
+                        ShowError($"Received message from unknown room {roomName}.");
+                        break;
+                    }
+
+                    ChatMessage addedMessage = channel.AddMessage(ChatMessageType.UserMessage, 
+                                                                  sender, 
+                                                                  message);
+
+                    if (Form is not null && OnMessageReceived is not null)
+                    {
+                        if (!(bool)Form.Invoke(OnMessageReceived, channel, addedMessage))
+                        {
+                            ++channel.unreadMessages;
+
+                            // Update the client list to show the unread messages.
+                            if (OnChannelListUpdate is not null)
+                                Form.Invoke(OnChannelListUpdate);
+                        }
+                    }
+
+                    break;
+                } 
             }
         }
 

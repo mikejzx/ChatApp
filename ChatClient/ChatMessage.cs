@@ -11,6 +11,8 @@ namespace Mikejzx.ChatClient
         UserMessage,
         UserJoin,
         UserLeave,
+        UserJoinRoom,
+        UserLeaveRoom,
     }
 
     public class ChatMessage
@@ -37,6 +39,10 @@ namespace Mikejzx.ChatClient
                     return $"{sender} disconnected.";
                 case ChatMessageType.UserJoin:
                     return $"{sender} connected.";
+                case ChatMessageType.UserLeaveRoom:
+                    return $"{sender} left the room.";
+                case ChatMessageType.UserJoinRoom:
+                    return $"{sender} joined the room.";
             }
             return string.Empty;
         }

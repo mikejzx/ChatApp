@@ -13,6 +13,15 @@ namespace Mikejzx.ChatShared
         // Client sends message to a user.
         ClientDirectMessage,
 
+        // Client sends message to a room.
+        ClientRoomMessage,
+
+        // Client joins a room
+        ClientRoomJoin,
+
+        // Client leaves a room
+        ClientRoomLeave,
+
         // Server sending us an error
         ServerError,
 
@@ -22,14 +31,26 @@ namespace Mikejzx.ChatShared
         // Server sending a client the most recent client list.
         ServerClientList,
 
+        // Server sending a client the list of rooms
+        ServerRoomList,
+
         // Server informing that a client joined the server
         ServerClientJoin,
 
         // Server informing that a client left the server
         ServerClientLeave,
 
-        // Server informing that a message was received.
+        // Server informing that a direct message was received.
         ServerDirectMessageReceived,
+
+        // Server informing that a room message was received.
+        ServerRoomMessageReceived,
+
+        // Server informing that a client joined a room.
+        ServerClientRoomJoin,
+
+        // Server informing that a client left a room.
+        ServerClientRoomLeave,
     }
 
     public enum PacketErrorCode : uint

@@ -47,7 +47,7 @@ namespace Mikejzx.ChatClient
     public class ChatRoomChannel : ChatChannel
     {
         // Name of room
-        public string channelName;
+        public string roomName;
 
         // String displayed in listbox
         public override string DisplayString
@@ -55,18 +55,18 @@ namespace Mikejzx.ChatClient
             get
             {
                 if (unreadMessages > 0)
-                    return $"({unreadMessages}) {channelName}";
+                    return $"({unreadMessages}) {roomName}";
 
-                return $"{channelName}";
+                return $"{roomName}";
             }
         }
 
         public override bool IsDirect { get => false; }
 
-        public ChatRoomChannel(string channelName)
+        public ChatRoomChannel(string roomName)
         {
             this.recipients = new List<ChatRecipient>();
-            this.channelName = channelName;
+            this.roomName = roomName;
             this.messages = new List<ChatMessage>();
             this.unreadMessages = 0;
         }
