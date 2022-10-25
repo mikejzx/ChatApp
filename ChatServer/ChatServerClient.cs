@@ -185,9 +185,51 @@ namespace Mikejzx.ChatServer
                     }
 
                     if (roomEncrypted)
-                        Console.WriteLine($"{Nickname} created room '{roomName}' with topic '{roomTopic}'");
-                    else
                         Console.WriteLine($"{Nickname} created encrypted room '{roomName}' with topic '{roomTopic}'");
+                    else
+                        Console.WriteLine($"{Nickname} created room '{roomName}' with topic '{roomTopic}'");
+
+                    break;
+                }
+
+                // Client is deleting a room
+                case PacketType.ClientRoomDelete:
+                {
+                    string roomName = packet.ReadString();
+
+                    // Skip if room name is malformed
+                    if (string.IsNullOrEmpty(roomName))
+                        break;
+
+                    // Get room
+                    ChatRoom? room = null;
+                    m_Server.EnumerateRoomsUntil((ChatRoom room2) =>
+                    {
+                        if (room2.name == roomName)
+                        {
+                            room = room2;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    // No such room to delete
+                    if (room is null)
+                    {
+                        Console.WriteLine($"{Nickname} attempted to delete unknown room {roomName}");
+                        break;
+                    }
+
+                    // Deleter must be owner.
+                    if (room.owner != this)
+                    {
+                        Console.WriteLine($"{Nickname} attempted to delete room " +
+                                           "{roomName} that they do not own.");
+                        break;
+                    }
+
+                    // Remove the room.
+                    m_Server.DeleteRoom(room);
 
                     break;
                 }

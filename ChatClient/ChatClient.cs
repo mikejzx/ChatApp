@@ -40,6 +40,10 @@ namespace Mikejzx.ChatClient
         private List<ChatChannel> m_Channels = new List<ChatChannel>();
         public List<ChatChannel> Channels { get => m_Channels; }
 
+        // List of rooms that we created
+        private List<ChatRoomChannel> m_OwnedRooms = new List<ChatRoomChannel>();
+        public List<ChatRoomChannel> OwnedRooms { get => m_OwnedRooms; }
+
         // List of clients that are connected to the server.
         private Dictionary<string, ChatRecipient> m_Clients = new Dictionary<string, ChatRecipient>();
         public Dictionary<string, ChatRecipient> Clients { get => m_Clients; }
@@ -63,12 +67,16 @@ namespace Mikejzx.ChatClient
                 // If we have not joined the room, attempt to join it.
                 if (value is not null &&
                     !value.IsDirect && 
-                    !((ChatRoomChannel)value).isJoined)
+                    !((ChatRoomChannel)value).isJoined &&
+                    !JoinRoom((ChatRoomChannel)value))
                 {
-                    JoinRoom((ChatRoomChannel)value);
+                    // If we didn't join it; we don't change the channel, we
+                    // leave it as what it was.
                 }
-
-                m_Channel = value;
+                else
+                {
+                    m_Channel = value;
+                }
 
                 if (Form is not null && OnChannelChanged is not null)
                     Form.Invoke(OnChannelChanged);
@@ -96,7 +104,6 @@ namespace Mikejzx.ChatClient
         public Action? OnCertificateValidationFailed;
         public Action? OnRoomCreateSuccess;
         public Action<string>? OnRoomCreateFail;
-        public Action? OnRoomDeleteSuccess;
         public Action<string>? OnRoomDeleteFail;
         public Func<ChatRoomChannel, bool>? OnRoomPasswordRequested;
 
@@ -213,10 +220,11 @@ namespace Mikejzx.ChatClient
             }
         }
 
-        public void JoinRoom(ChatRoomChannel room)
+        // Join a room (returns true if successful).
+        public bool JoinRoom(ChatRoomChannel room)
         {
             if (m_Writer is null)
-                return;
+                return false;
 
             // If the room is encrypted then we need to ask for a password.
             if (room.isEncrypted && 
@@ -226,7 +234,7 @@ namespace Mikejzx.ChatClient
                 if (!(bool)Form.Invoke(OnRoomPasswordRequested, room))
                 {
                     // User aborted.
-                    return;
+                    return false;
                 }
             }
 
@@ -240,6 +248,8 @@ namespace Mikejzx.ChatClient
                 packet.WriteToStream(m_Writer);
                 m_Writer.Flush();
             }
+
+            return true;
         }
 
         private void Cleanup()
@@ -724,10 +734,20 @@ namespace Mikejzx.ChatClient
 
                     // Add client to the room recipients
                     if (nickname != Nickname)
+                    {
                         room.recipients.Add(m_Clients[nickname]);
+                    }
                     else
                     {
+                        // If this packet gets sent to us with our own nickname
+                        // it indicates us joining a room that we created.
                         room.isJoined = true;
+
+                        m_OwnedRooms.Add(room);
+
+                        if (Form is not null && OnRoomCreateSuccess is not null)
+                            Form.Invoke(OnRoomCreateSuccess);
+
                         break;
                     }
 
@@ -913,15 +933,9 @@ namespace Mikejzx.ChatClient
                     ChatRoomChannel channel = new ChatRoomChannel(roomName, roomTopic, roomEncrypted);
                     Channels.Add(channel);
 
-                    // Automatically join our room.
-                    //channel.isJoined = true;
-
                     // Run channel list changed callback.
                     if (Form is not null && OnChannelListUpdate is not null)
                         Form.Invoke(OnChannelListUpdate);
-
-                    if (Form is not null && OnRoomCreateSuccess is not null)
-                        Form.Invoke(OnRoomCreateSuccess);
 
                     break;
                 }
@@ -937,6 +951,13 @@ namespace Mikejzx.ChatClient
                         if (!channel.IsDirect && 
                             ((ChatRoomChannel)channel).roomName == roomName)
                         {
+                            // Get out of the room if we are in it.
+                            if (Channel == channel)
+                                Channel = null;
+
+                            // Remove from owned rooms
+                            OwnedRooms.Remove((ChatRoomChannel)channel);
+
                             Channels.Remove(channel);
 
                             // Run channel list changed callback.
@@ -946,9 +967,6 @@ namespace Mikejzx.ChatClient
                             break;
                         }
                     }
-
-                    if (Form is not null && OnRoomDeleteSuccess is not null)
-                        Form.Invoke(OnRoomDeleteSuccess);
 
                     break;
                 }

@@ -273,11 +273,12 @@
             this.roomToolStripMenuItem.Name = "roomToolStripMenuItem";
             this.roomToolStripMenuItem.Size = new System.Drawing.Size(51, 20);
             this.roomToolStripMenuItem.Text = "Room";
+            this.roomToolStripMenuItem.DropDownOpening += new System.EventHandler(this.roomToolStripMenuItem_DropDownOpening);
             // 
             // createRoomToolStripMenuItem
             // 
             this.createRoomToolStripMenuItem.Name = "createRoomToolStripMenuItem";
-            this.createRoomToolStripMenuItem.Size = new System.Drawing.Size(149, 22);
+            this.createRoomToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
             this.createRoomToolStripMenuItem.Text = "Create room...";
             this.createRoomToolStripMenuItem.Click += new System.EventHandler(this.createRoomToolStripMenuItem_Click);
             // 
@@ -285,8 +286,9 @@
             // 
             this.deleteRoomToolStripMenuItem.Enabled = false;
             this.deleteRoomToolStripMenuItem.Name = "deleteRoomToolStripMenuItem";
-            this.deleteRoomToolStripMenuItem.Size = new System.Drawing.Size(149, 22);
+            this.deleteRoomToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
             this.deleteRoomToolStripMenuItem.Text = "Delete room...";
+            this.deleteRoomToolStripMenuItem.DropDownOpening += new System.EventHandler(this.deleteRoomToolStripMenuItem_DropDownOpening);
             // 
             // helpToolStripMenuItem
             // 

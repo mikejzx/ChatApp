@@ -433,5 +433,35 @@ namespace Mikejzx.ChatClient
             ChatClientRoomCreateForm createForm = new ChatClientRoomCreateForm(m_Client);
             createForm.Show();
         }
+
+        private void roomToolStripMenuItem_DropDownOpening(object sender, EventArgs e)
+        {
+            deleteRoomToolStripMenuItem.Enabled = m_Client.OwnedRooms.Count > 0;
+
+            deleteRoomToolStripMenuItem.DropDownItems.Clear();
+            foreach (ChatRoomChannel room in m_Client.OwnedRooms)
+            {
+                ToolStripButton button = new ToolStripButton(room.roomName);
+
+                button.Text = room.roomName;
+
+                button.Click += (object? sender, EventArgs e) =>
+                {
+                    if (sender is null)
+                        return;
+
+                    string roomName = ((ToolStripButton)sender).Text;
+
+                    // Delete the room with this name
+                    m_Client.DeleteRoom(roomName);
+                };
+
+                deleteRoomToolStripMenuItem.DropDownItems.Add(button);
+            }
+        }
+
+        private void deleteRoomToolStripMenuItem_DropDownOpening(object sender, EventArgs e)
+        {
+        }
     }
 }

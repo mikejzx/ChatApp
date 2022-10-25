@@ -235,6 +235,9 @@ namespace Mikejzx.ChatServer
                     });
                 }
 
+                // Add the owner to the room automatically.
+                owner.Rooms.Add(room);
+
                 // Inform owner that they joined the room (automatically).
                 using (Packet packet = new Packet(PacketType.ServerClientRoomJoin))
                 {
@@ -256,6 +259,12 @@ namespace Mikejzx.ChatServer
         {
             lock(roomSync)
             {
+                // Remove the room from all clients.
+                EnumerateClients((ChatServerClient client) =>
+                {
+                    client.Rooms.Remove(room);
+                });
+
                 // Remove the room
                 if (!m_Rooms.Remove(room.name))
                     return false;
