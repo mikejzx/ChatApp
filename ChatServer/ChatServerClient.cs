@@ -123,7 +123,15 @@ namespace Mikejzx.ChatServer
                     if (room is null)
                         break;
 
-                    // Send message to everyone in the room
+                    // Ensure that the client is actually a member of the room
+                    if (!m_Rooms.Contains(room))
+                    {
+                        Console.WriteLine($"Error: User '{Nickname}' attempt to " +
+                            $"write to room {roomName} which they are not a member of.");
+                        break;
+                    }
+
+                    // Send the message back to everyone in the room
                     using (Packet packet2 = new Packet(PacketType.ServerRoomMessageReceived))
                     {
                         packet2.Write(Nickname);
@@ -131,9 +139,9 @@ namespace Mikejzx.ChatServer
                         packet2.Write(msg);
 
                         // Send the message to all clients who are in the room.
-                        foreach(ChatServerClient client in room.clients)
+                        foreach (ChatServerClient client in room.clients)
                         {
-                            lock(client.sendSync)
+                            lock (client.sendSync)
                             {
                                 packet2.WriteToStream(client.Writer);
                                 client.Writer.Flush();
@@ -142,7 +150,87 @@ namespace Mikejzx.ChatServer
                     }
 
                     break;
-                } 
+                }
+
+                // Client is creating a room
+                case PacketType.ClientRoomCreate:
+                { 
+                    string roomName = packet.ReadString();
+                    string roomTopic = packet.ReadString();
+                    bool roomEncrypted = packet.ReadBool();
+
+                    // Skip if room name is malformed
+                    if (string.IsNullOrEmpty(roomName))
+                        break;
+
+                    // Add the room
+                    ChatRoom? room = m_Server.CreateRoom(this, roomName, roomTopic, roomEncrypted);
+
+                    if (room is null)
+                    {
+                        // Inform client that we failed to create the room.
+                        using (Packet error = new Packet(PacketType.ServerRoomCreateError))
+                        {
+                            error.Write((uint)PacketErrorCode.RoomNameTaken);
+                            error.Write("Room name is already taken.  Please enter a different name.");
+
+                            lock (sendSync)
+                            {
+                                error.WriteToStream(Writer);
+                                Writer.Flush();
+                            }
+                        }
+
+                        break;
+                    }
+
+                    if (roomEncrypted)
+                        Console.WriteLine($"{Nickname} created room '{roomName}' with topic '{roomTopic}'");
+                    else
+                        Console.WriteLine($"{Nickname} created encrypted room '{roomName}' with topic '{roomTopic}'");
+
+                    break;
+                }
+
+                // Client wants to join room.
+                case PacketType.ClientRoomJoin:
+                {
+                    string roomName = packet.ReadString();
+
+                    // Get room
+                    ChatRoom? room = null;
+                    m_Server.EnumerateRoomsUntil((ChatRoom room2) =>
+                    {
+                        if (room2.name == roomName)
+                        {
+                            room = room2;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    // No such room to join
+                    if (room is null)
+                    {
+                        Console.WriteLine($"{Nickname} attempted to join unknown room {roomName}");
+                        break;
+                    }
+
+                    if (!room.isEncrypted)
+                    {
+                        // Simply add them to the room's participants list.
+                        m_Server.AddClientToRoom(this, room);
+                    }
+                    else
+                    {
+                        // Send the attached request message to the owner of
+                        // the room; who will respond to us if the request
+                        // message was decrypted correctly.
+                        // TODO
+                    }
+
+                    break;
+                }
             }
         }
 
@@ -199,11 +287,6 @@ namespace Mikejzx.ChatServer
                     }
                 }
 
-                m_IsInServer = true;
-
-                // Add the client to the server client list.
-                m_Server.AddClient(this);
-
                 // Send the client list to the client.
                 using (packet = new Packet(PacketType.ServerClientList))
                 {
@@ -234,14 +317,11 @@ namespace Mikejzx.ChatServer
                         // Write room name
                         packet.Write(room.name);
 
-                        // Write client count
-                        packet.Write(room.clients.Count);
+                        // Write room topic
+                        packet.Write(room.topic);
 
-                        // Write client names.
-                        foreach (ChatServerClient client in room.clients)
-                        {
-                            packet.Write(client.Nickname);
-                        }
+                        // Write whether room is encrypted
+                        packet.Write(room.isEncrypted);
                     });
 
                     lock (sendSync)
@@ -250,6 +330,11 @@ namespace Mikejzx.ChatServer
                         Writer.Flush();
                     }
                 }
+
+                // Add the client to the server client list.
+                m_Server.AddClient(this);
+
+                m_IsInServer = true;
 
                 // Initialise the packet which we use for reading.
                 packet = new Packet();

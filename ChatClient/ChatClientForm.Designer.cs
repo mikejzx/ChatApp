@@ -46,6 +46,9 @@
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.logOutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.roomToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.createRoomToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.deleteRoomToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.helpToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.aboutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
@@ -69,6 +72,8 @@
             // 
             // label2
             // 
+            this.label2.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.label2.Location = new System.Drawing.Point(3, 130);
             this.label2.Name = "label2";
             this.label2.Size = new System.Drawing.Size(229, 20);
@@ -157,6 +162,8 @@
             // 
             // lstRooms
             // 
+            this.lstRooms.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.lstRooms.FormattingEnabled = true;
             this.lstRooms.ItemHeight = 15;
             this.lstRooms.Location = new System.Drawing.Point(3, 33);
@@ -167,6 +174,9 @@
             // 
             // lstChannels
             // 
+            this.lstChannels.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.lstChannels.FormattingEnabled = true;
             this.lstChannels.ItemHeight = 15;
             this.lstChannels.Location = new System.Drawing.Point(3, 153);
@@ -177,6 +187,8 @@
             // 
             // label1
             // 
+            this.label1.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.label1.Location = new System.Drawing.Point(3, 3);
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(229, 27);
@@ -209,7 +221,7 @@
             // 
             // lblMyName
             // 
-            this.lblMyName.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            this.lblMyName.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
             this.lblMyName.Location = new System.Drawing.Point(3, 355);
             this.lblMyName.Name = "lblMyName";
@@ -222,6 +234,7 @@
             // 
             this.menuStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.fileToolStripMenuItem,
+            this.roomToolStripMenuItem,
             this.helpToolStripMenuItem});
             this.menuStrip.Location = new System.Drawing.Point(0, 0);
             this.menuStrip.Name = "menuStrip";
@@ -251,6 +264,29 @@
             this.exitToolStripMenuItem.Size = new System.Drawing.Size(115, 22);
             this.exitToolStripMenuItem.Text = "Exit";
             this.exitToolStripMenuItem.Click += new System.EventHandler(this.exitToolStripMenuItem_Click);
+            // 
+            // roomToolStripMenuItem
+            // 
+            this.roomToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.createRoomToolStripMenuItem,
+            this.deleteRoomToolStripMenuItem});
+            this.roomToolStripMenuItem.Name = "roomToolStripMenuItem";
+            this.roomToolStripMenuItem.Size = new System.Drawing.Size(51, 20);
+            this.roomToolStripMenuItem.Text = "Room";
+            // 
+            // createRoomToolStripMenuItem
+            // 
+            this.createRoomToolStripMenuItem.Name = "createRoomToolStripMenuItem";
+            this.createRoomToolStripMenuItem.Size = new System.Drawing.Size(149, 22);
+            this.createRoomToolStripMenuItem.Text = "Create room...";
+            this.createRoomToolStripMenuItem.Click += new System.EventHandler(this.createRoomToolStripMenuItem_Click);
+            // 
+            // deleteRoomToolStripMenuItem
+            // 
+            this.deleteRoomToolStripMenuItem.Enabled = false;
+            this.deleteRoomToolStripMenuItem.Name = "deleteRoomToolStripMenuItem";
+            this.deleteRoomToolStripMenuItem.Size = new System.Drawing.Size(149, 22);
+            this.deleteRoomToolStripMenuItem.Text = "Delete room...";
             // 
             // helpToolStripMenuItem
             // 
@@ -313,5 +349,8 @@
         private Label label1;
         private ChannelListBox lstChannels;
         private ChannelListBox lstRooms;
+        private ToolStripMenuItem roomToolStripMenuItem;
+        private ToolStripMenuItem createRoomToolStripMenuItem;
+        private ToolStripMenuItem deleteRoomToolStripMenuItem;
     }
 }

@@ -13,6 +13,9 @@ namespace Mikejzx.ChatClient
         // Form used for chatting
         public static ChatClientForm? chatForm;
 
+        // Room creation forms
+        public static List<ChatClientRoomCreateForm> roomCreateForms = new List<ChatClientRoomCreateForm>();
+
         // Name of the application
         public static readonly string AppName = "ChatApp";
 
@@ -41,6 +44,13 @@ namespace Mikejzx.ChatClient
 
         private static void Cleanup()
         {
+            // Close all room creator forms
+            foreach (ChatClientRoomCreateForm form in roomCreateForms)
+            {
+                form.Close();
+            }
+
+            // Disconnect the client
             if (client is not null)
                 client.Disconnect();
         }

@@ -22,6 +22,12 @@ namespace Mikejzx.ChatShared
         // Client leaves a room
         ClientRoomLeave,
 
+        // Client creates a room.
+        ClientRoomCreate,
+
+        // Client deletes their room.
+        ClientRoomDelete,
+
         // Server sending us an error
         ServerError,
 
@@ -51,6 +57,21 @@ namespace Mikejzx.ChatShared
 
         // Server informing that a client left a room.
         ServerClientRoomLeave,
+
+        // Server informing client of the members of a room
+        ServerClientRoomMembers,
+
+        // Server informing that a room was created
+        ServerRoomCreated,
+
+        // Server informing that a room was deleted
+        ServerRoomDeleted,
+
+        // Server informing client that room creation failed
+        ServerRoomCreateError,
+
+        // Server informing client that room deletion failed
+        ServerRoomDeleteError,
     }
 
     public enum PacketErrorCode : uint
@@ -59,6 +80,9 @@ namespace Mikejzx.ChatShared
 
         // The given nickname is invalid.
         InvalidNickname,
+
+        // The room name is already taken.
+        RoomNameTaken,
     }
 
     public class Packet : IDisposable
@@ -137,6 +161,7 @@ namespace Mikejzx.ChatShared
         // Write methods.
         public void Write(byte data) => m_Buffer?.Add(data);
         public void Write(byte[] data) => m_Buffer?.AddRange(data);
+        public void Write(bool data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
         public void Write(uint data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
         public void Write(int data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
         public void Write(float data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
@@ -185,6 +210,28 @@ namespace Mikejzx.ChatShared
             if (updatePosition)
             {
                 m_Position += count * sizeof(byte);
+            }
+
+            return value;
+        }
+
+        // Read boolean from packet
+        public bool ReadBool(bool updatePosition=true)
+        {
+            if (m_Buffer is null || m_ReadableBuffer is null)
+                throw new NullReferenceException();
+
+            // Check for end of stream
+            if (m_Buffer.Count <= m_Position)
+                throw new EndOfStreamException();
+
+            // Bools are stored as single byte.
+            bool value = BitConverter.ToBoolean(m_ReadableBuffer, m_Position);
+
+            // Update read position
+            if (updatePosition)
+            {
+                m_Position += sizeof(bool);
             }
 
             return value;

@@ -24,6 +24,7 @@ namespace Mikejzx.ChatServer
         private readonly object roomSync = new object();
 
         public static readonly string MainRoomName = "Main Room";
+        public static readonly string MainRoomTopic = "The main room.";
 
         // Get number of clients that are in the server.
         public int ClientCount
@@ -81,6 +82,19 @@ namespace Mikejzx.ChatServer
             }
         }
 
+        // Enumerate room list until given function returns true.
+        public void EnumerateRoomsUntil(Func<ChatRoom, bool> func)
+        {
+            lock(roomSync)
+            {
+                foreach (ChatRoom room in m_Rooms.Values)
+                {
+                    if (func.Invoke(room))
+                        return;
+                }
+            }
+        }
+
         // Get room by name.
         public ChatRoom? GetRoom(string roomName)
         {
@@ -128,7 +142,7 @@ namespace Mikejzx.ChatServer
 
             // Create the main room that all users are in by default.
             m_Rooms.Clear();
-            m_Rooms.Add(MainRoomName, new ChatRoom(MainRoomName));
+            m_Rooms.Add(MainRoomName, new ChatRoom(null, MainRoomName, MainRoomTopic, false));
 
             // Create TCP listener socket.
             TcpListener listener;
@@ -192,6 +206,79 @@ namespace Mikejzx.ChatServer
             }
         }
 
+        internal ChatRoom? CreateRoom(ChatServerClient owner, string name, string topic, bool encrypted)
+        {
+            lock(roomSync)
+            {
+                // Room name already taken.
+                if (m_Rooms.ContainsKey(name))
+                    return null;
+
+                // Create and add the room
+                ChatRoom room = new ChatRoom(owner, name, topic, encrypted);
+                m_Rooms.Add(name, room);
+
+                // Inform everyone in server that the room was created.
+                using (Packet packet = new Packet(PacketType.ServerRoomCreated))
+                {
+                    packet.Write(room.name);
+                    packet.Write(room.topic);
+                    packet.Write(room.isEncrypted);
+
+                    EnumerateClients((ChatServerClient client) =>
+                    {
+                        lock (client.sendSync)
+                        {
+                            packet.WriteToStream(client.Writer);
+                            client.Writer.Flush();
+                        }
+                    });
+                }
+
+                // Inform owner that they joined the room (automatically).
+                using (Packet packet = new Packet(PacketType.ServerClientRoomJoin))
+                {
+                    packet.Write(room.name);
+                    packet.Write(owner.Nickname);
+
+                    lock (owner.sendSync)
+                    {
+                        packet.WriteToStream(owner.Writer);
+                        owner.Writer.Flush();
+                    }
+                }
+
+                return room;
+            }
+        }
+
+        internal bool DeleteRoom(ChatRoom room)
+        {
+            lock(roomSync)
+            {
+                // Remove the room
+                if (!m_Rooms.Remove(room.name))
+                    return false;
+
+                // Inform everyone in server that the room was deleted.
+                using (Packet packet = new Packet(PacketType.ServerRoomDeleted))
+                {
+                    packet.Write(room.name);
+
+                    EnumerateClients((ChatServerClient client) =>
+                    {
+                        lock (client.sendSync)
+                        {
+                            packet.WriteToStream(client.Writer);
+                            client.Writer.Flush();
+                        }
+                    });
+                }
+
+                return true;
+            }
+        }
+
         internal void AddClientToRoom(ChatServerClient client, ChatRoom room)
         {
             lock(roomSync)
@@ -218,6 +305,26 @@ namespace Mikejzx.ChatServer
                 // And add room to client's internal list.
                 lock(clientSync)
                     client.Rooms.Add(room);
+
+                // Send the current list of clients to the newly-joining
+                // client.  We include the newly joining client to indicate
+                // that they are a part of the room too.
+                using (Packet packet = new Packet(PacketType.ServerClientRoomMembers))
+                {
+                    packet.Write(room.name);
+                    packet.Write(room.clients.Count);
+
+                    foreach (ChatServerClient client2 in room.clients)
+                    {
+                        packet.Write(client2.Nickname);
+                    }
+
+                    lock (client.sendSync)
+                    {
+                        packet.WriteToStream(client.Writer);
+                        client.Writer.Flush();
+                    }
+                }
             }
         }
 
@@ -240,7 +347,7 @@ namespace Mikejzx.ChatServer
                     }
                 }
 
-                // Add client to the main room
+                // Automatically add client to the main room
                 AddClientToRoom(client, m_Rooms[MainRoomName]);
                 
                 m_Clients[client.Nickname] = client;

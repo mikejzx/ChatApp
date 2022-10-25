@@ -60,6 +60,14 @@ namespace Mikejzx.ChatClient
                     }
                 }
 
+                // If we have not joined the room, attempt to join it.
+                if (value is not null &&
+                    !value.IsDirect && 
+                    !((ChatRoomChannel)value).isJoined)
+                {
+                    JoinRoom((ChatRoomChannel)value);
+                }
+
                 m_Channel = value;
 
                 if (Form is not null && OnChannelChanged is not null)
@@ -86,6 +94,11 @@ namespace Mikejzx.ChatClient
         public Func<X509Certificate, string, bool>? OnCertificateChanged;
         public Func<X509Certificate, bool>? OnCertificateFirstTime;
         public Action? OnCertificateValidationFailed;
+        public Action? OnRoomCreateSuccess;
+        public Action<string>? OnRoomCreateFail;
+        public Action? OnRoomDeleteSuccess;
+        public Action<string>? OnRoomDeleteFail;
+        public Func<ChatRoomChannel, bool>? OnRoomPasswordRequested;
 
         private bool m_InServer = false;
 
@@ -155,6 +168,77 @@ namespace Mikejzx.ChatClient
                     packet.WriteToStream(m_Writer);
                     m_Writer.Flush();
                 }
+            }
+        }
+
+        // Create a chat room.
+        public void CreateRoom(string roomName, string roomTopic, bool roomEncrypted)
+        {
+            if (m_Writer is null)
+                return;
+
+            // Create the packet
+            using (Packet packet = new Packet(PacketType.ClientRoomCreate))
+            {
+                // Write room name
+                packet.Write(roomName);
+
+                // Write room topic
+                packet.Write(roomTopic);
+
+                // Write whether room is password-protected.
+                packet.Write(roomEncrypted);
+
+                // Send it to server.
+                packet.WriteToStream(m_Writer);
+                m_Writer.Flush();
+            }
+        }
+
+        // Delete a room (must be owned by the client).
+        public void DeleteRoom(string roomName)
+        {
+            if (m_Writer is null)
+                return;
+
+            // Create the packet
+            using (Packet packet = new Packet(PacketType.ClientRoomDelete))
+            {
+                // Write room name
+                packet.Write(roomName);
+
+                // Send it to server.
+                packet.WriteToStream(m_Writer);
+                m_Writer.Flush();
+            }
+        }
+
+        public void JoinRoom(ChatRoomChannel room)
+        {
+            if (m_Writer is null)
+                return;
+
+            // If the room is encrypted then we need to ask for a password.
+            if (room.isEncrypted && 
+                Form is not null && 
+                OnRoomPasswordRequested is not null)
+            {
+                if (!(bool)Form.Invoke(OnRoomPasswordRequested, room))
+                {
+                    // User aborted.
+                    return;
+                }
+            }
+
+            // Create the packet
+            using (Packet packet = new Packet(PacketType.ClientRoomJoin))
+            {
+                // Write room name
+                packet.Write(room.roomName);
+
+                // Send it to server.
+                packet.WriteToStream(m_Writer);
+                m_Writer.Flush();
             }
         }
 
@@ -379,6 +463,7 @@ namespace Mikejzx.ChatClient
                 { 
                     PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
                     string msg = packet.ReadString();
+
                     ShowError(msg);
 
                     break;
@@ -443,36 +528,69 @@ namespace Mikejzx.ChatClient
                     for (int i = 0; i < count; ++i)
                     {
                         string roomName = packet.ReadString();
+                        string roomTopic = packet.ReadString();
+                        bool roomEncrypted = packet.ReadBool();
 
                         // Create channel for the room.
-                        ChatRoomChannel channel = new ChatRoomChannel(roomName);
+                        ChatRoomChannel channel = new ChatRoomChannel(roomName, roomTopic, roomEncrypted);
                         Channels.Add(channel);
-
-                        // Add clients/recipients to the room
-                        int clientCount = packet.ReadInt32();
-                        for (int j = 0; j < clientCount; ++j)
-                        {
-                            string clientName = packet.ReadString();
-
-                            // Skip ourself
-                            if (clientName == Nickname)
-                                continue;
-
-                            // Ensure we have this client.
-                            if (!m_Clients.ContainsKey(clientName))
-                            {
-                                ShowError($"Room contains unknown user {clientName}");
-                                continue;
-                            }
-
-                            // Add the client to the channel
-                            channel.recipients.Add(m_Clients[clientName]);
-                        }
                     }
 
                     // Update channel list.
                     if (Form is not null && OnChannelListUpdate is not null)
                         Form.Invoke(OnChannelListUpdate);
+
+                    break;
+                }
+
+                // Server sends us the members of a room (e.g. on room join)
+                case PacketType.ServerClientRoomMembers:
+                {
+                    string roomName = packet.ReadString();
+                    int memberCount = packet.ReadInt32();
+
+                    // Find the channel
+                    ChatChannel? channel = null;
+                    foreach (ChatChannel channel2 in Channels)
+                    {
+                        if (!channel2.IsDirect && 
+                            ((ChatRoomChannel)channel2).roomName == roomName)
+                        {
+                            channel = channel2;
+                            break;
+                        }
+                    }
+
+                    if (channel is null)
+                    {
+                        ShowError($"Got members for unknown room '{roomName}'");
+                        break;
+                    }
+
+                    channel.recipients.Clear();
+
+                    for (int i = 0; i < memberCount; ++i)
+                    {
+                        string clientName = packet.ReadString();
+
+                        if (clientName == Nickname)
+                        {
+                            // We are a member of this room.
+                            ((ChatRoomChannel)channel).isJoined = true;
+
+                            continue;
+                        }
+
+                        // Ensure we have the client.
+                        if (!m_Clients.ContainsKey(clientName))
+                        {
+                            ShowError($"Room contains unknown user {clientName}");
+                            continue;
+                        }
+
+                        // Add the client to the channel
+                        channel.recipients.Add(m_Clients[clientName]);
+                    }
 
                     break;
                 }
@@ -573,10 +691,6 @@ namespace Mikejzx.ChatClient
                     string roomName = packet.ReadString();
                     string nickname = packet.ReadString();
 
-                    // Skip ourself just to be safe.
-                    if (nickname == Nickname)
-                        break;
-
                     // Get room
                     ChatRoomChannel? room = null;
                     foreach (ChatChannel channel in m_Channels)
@@ -585,16 +699,37 @@ namespace Mikejzx.ChatClient
                             ((ChatRoomChannel)channel).roomName == roomName)
                         {
                             room = (ChatRoomChannel)channel;
+                            break;
                         }
                     }
 
-                    // Left unknown room.
+                    // Joined unknown room.
                     if (room is null)
+                    {
+                        ShowError($"Client '{nickname}' joined unknown room '{roomName}'.");
+                        break;
+                    }
+
+                    // Skip if the room already contains recipient
+                    if (room.ContainsRecipient(nickname))
                         break;
 
                     // Unknown client joined
-                    if (!m_Clients.ContainsKey(nickname))
+                    if (nickname != Nickname &&
+                        !m_Clients.ContainsKey(nickname))
+                    {
+                        ShowError($"Unknown client '{nickname}' joined room '{roomName}'.");
                         break;
+                    }
+
+                    // Add client to the room recipients
+                    if (nickname != Nickname)
+                        room.recipients.Add(m_Clients[nickname]);
+                    else
+                    {
+                        room.isJoined = true;
+                        break;
+                    }
 
                     // Append join message
                     ChatMessage msg = room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
@@ -643,6 +778,9 @@ namespace Mikejzx.ChatClient
                     if (!m_Clients.ContainsKey(nickname) || 
                         !room.ContainsRecipient(nickname))
                         break;
+
+                    // Remove client from the room recipients
+                    room.recipients.Remove(m_Clients[nickname]);
 
                     // Append leave message
                     ChatMessage msg = room.AddMessage(ChatMessageType.UserLeaveRoom, nickname);
@@ -731,7 +869,8 @@ namespace Mikejzx.ChatClient
                     ChatChannel? channel = null;
                     foreach (ChatChannel channel2 in Channels)
                     {
-                        if (!channel2.IsDirect && ((ChatRoomChannel)channel2).roomName == roomName)
+                        if (!channel2.IsDirect && 
+                            ((ChatRoomChannel)channel2).roomName == roomName)
                         {
                             channel = channel2;
                             break;
@@ -754,14 +893,89 @@ namespace Mikejzx.ChatClient
                         {
                             ++channel.unreadMessages;
 
-                            // Update the client list to show the unread messages.
+                            // Update the channel list to show the unread messages.
                             if (OnChannelListUpdate is not null)
                                 Form.Invoke(OnChannelListUpdate);
                         }
                     }
 
                     break;
-                } 
+                }
+
+                // Server tells us that a room was created
+                case PacketType.ServerRoomCreated:
+                {
+                    string roomName = packet.ReadString();
+                    string roomTopic = packet.ReadString();
+                    bool roomEncrypted = packet.ReadBool();
+
+                    // Add the room channel.
+                    ChatRoomChannel channel = new ChatRoomChannel(roomName, roomTopic, roomEncrypted);
+                    Channels.Add(channel);
+
+                    // Automatically join our room.
+                    //channel.isJoined = true;
+
+                    // Run channel list changed callback.
+                    if (Form is not null && OnChannelListUpdate is not null)
+                        Form.Invoke(OnChannelListUpdate);
+
+                    if (Form is not null && OnRoomCreateSuccess is not null)
+                        Form.Invoke(OnRoomCreateSuccess);
+
+                    break;
+                }
+
+                // Server tells us that a room was deleted
+                case PacketType.ServerRoomDeleted:
+                {
+                    string roomName = packet.ReadString();
+
+                    // Delete the room channel.
+                    foreach (ChatChannel channel in Channels)
+                    {
+                        if (!channel.IsDirect && 
+                            ((ChatRoomChannel)channel).roomName == roomName)
+                        {
+                            Channels.Remove(channel);
+
+                            // Run channel list changed callback.
+                            if (Form is not null && OnChannelListUpdate is not null)
+                                Form.Invoke(OnChannelListUpdate);
+
+                            break;
+                        }
+                    }
+
+                    if (Form is not null && OnRoomDeleteSuccess is not null)
+                        Form.Invoke(OnRoomDeleteSuccess);
+
+                    break;
+                }
+
+                // Server tells us that our room creation failed.
+                case PacketType.ServerRoomCreateError:
+                {
+                    PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
+                    string msg = packet.ReadString();
+
+                    if (Form is not null && OnRoomCreateFail is not null)
+                        Form.Invoke(OnRoomCreateFail, msg);
+
+                    break;
+                }
+
+                // Server tells us that our room deletion failed.
+                case PacketType.ServerRoomDeleteError:
+                {
+                    PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
+                    string msg = packet.ReadString();
+
+                    if (Form is not null && OnRoomDeleteFail is not null)
+                        Form.Invoke(OnRoomDeleteFail, msg);
+
+                    break;
+                }
             }
         }
 

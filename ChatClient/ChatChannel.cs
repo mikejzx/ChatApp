@@ -49,6 +49,18 @@ namespace Mikejzx.ChatClient
         // Name of room
         public string roomName;
 
+        // Topic of room
+        public string roomTopic;
+
+        // Whether room is encrypted
+        public bool isEncrypted;
+
+        // The password the user has entered, for encrypted rooms.
+        public string roomPassword;
+
+        // Whether we are a member of this room.
+        public bool isJoined;
+
         // String displayed in listbox
         public override string DisplayString
         {
@@ -63,12 +75,16 @@ namespace Mikejzx.ChatClient
 
         public override bool IsDirect { get => false; }
 
-        public ChatRoomChannel(string roomName)
+        public ChatRoomChannel(string roomName, string roomTopic, bool roomEncrypted)
         {
             this.recipients = new List<ChatRecipient>();
             this.roomName = roomName;
+            this.roomTopic = roomTopic;
+            this.isEncrypted = roomEncrypted;
+            this.roomPassword = string.Empty;
             this.messages = new List<ChatMessage>();
             this.unreadMessages = 0;
+            this.isJoined = false;
         }
     }
 

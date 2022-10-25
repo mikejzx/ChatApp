@@ -290,6 +290,15 @@ namespace Mikejzx.ChatClient
                 return (DialogResult)result.Tag == DialogResult.Yes;
             };
 
+            m_Client.OnRoomPasswordRequested += (ChatRoomChannel channel) =>
+            {
+                // Show password input form.
+                // TODO
+                MessageBox.Show("Password requested");
+
+                return false;
+            };
+
             txtCompose.Focus();
         }
 
@@ -416,6 +425,13 @@ namespace Mikejzx.ChatClient
         private void btnScrollToBottom_Click(object sender, EventArgs e)
         {
             txtMessages.ScrollToBottom();
+        }
+
+        private void createRoomToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            // Show room creator form.
+            ChatClientRoomCreateForm createForm = new ChatClientRoomCreateForm(m_Client);
+            createForm.Show();
         }
     }
 }
