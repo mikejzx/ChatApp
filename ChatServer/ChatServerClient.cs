@@ -131,12 +131,20 @@ namespace Mikejzx.ChatServer
                         break;
                     }
 
+                    // If the room is encrypted; we include the IV.
+                    string? iv = null;
+                    if (room.isEncrypted)
+                        iv = packet.ReadString();
+
                     // Send the message back to everyone in the room
                     using (Packet packet2 = new Packet(PacketType.ServerRoomMessageReceived))
                     {
                         packet2.Write(Nickname);
                         packet2.Write(roomName);
                         packet2.Write(msg);
+
+                        if (iv is not null)
+                            packet2.Write(iv);
 
                         // Send the message to all clients who are in the room.
                         foreach (ChatServerClient client in room.clients)
@@ -239,6 +247,8 @@ namespace Mikejzx.ChatServer
                 {
                     string roomName = packet.ReadString();
 
+                    Console.WriteLine($"'{Nickname}' joining room {roomName} ...");
+
                     // Get room
                     ChatRoom? room = null;
                     m_Server.EnumerateRoomsUntil((ChatRoom room2) =>
@@ -265,12 +275,197 @@ namespace Mikejzx.ChatServer
                     }
                     else
                     {
-                        // Send the attached request message to the owner of
-                        // the room; who will respond to us if the request
-                        // message was decrypted correctly.
-                        // TODO
+                        // We need a room owner
+                        if (room.owner is null)
+                        {
+                            Console.WriteLine($"{Nickname} attempted to join encrypted room with no owner.");
+                            break;
+                        }
+
+                        // Forward the attached encrypted message to the owner
+                        // of the room; who will respond to us if the request
+                        // message was decrypted correctly to the expected string.
+                        string saltString = packet.ReadString();
+                        string ivString = packet.ReadString();
+                        string messageString = packet.ReadString();
+
+                        Console.WriteLine($"'{Nickname}' attempting to join encrypted room '{roomName}'");
+                        Console.WriteLine($"'{Nickname}' salt:{saltString} iv:{ivString} message:{messageString}");
+
+                        // Send authorisation request to the room's owner.
+                        using (Packet packet2 = new Packet(PacketType.ServerClientJoinEncryptedRoomRequest))
+                        {
+                            packet2.Write(roomName);
+                            packet2.Write(Nickname);
+                            packet2.Write(saltString);
+                            packet2.Write(ivString);
+                            packet2.Write(messageString);
+
+                            lock (room.owner.sendSync)
+                            {
+                                packet2.WriteToStream(room.owner.Writer);
+                                room.owner.Writer.Flush();
+                            }
+                        }
                     }
 
+                    break;
+                }
+
+                // Encrypted room owner does not authorise the client to join.
+                case PacketType.ClientEncryptedRoomAuthoriseFail:
+                {
+                    string roomName = packet.ReadString();
+                    string nickname = packet.ReadString();
+
+                    Console.WriteLine($"'{Nickname}' attempting to NOT authorise '{nickname}' to '{roomName}' ...");
+
+                    // Client must exist.
+                    ChatServerClient? client = m_Server.GetClient(nickname);
+                    if (client is null)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to NOT authorise " + 
+                                          $"unknown user '{nickname}' to room '{roomName}'");
+                        break;
+                    }
+
+                    // Get room
+                    ChatRoom? room = null;
+                    m_Server.EnumerateRoomsUntil((ChatRoom room2) =>
+                    {
+                        if (room2.name == roomName)
+                        {
+                            room = room2;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    // No such room to join
+                    if (room is null)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to NOT authorise " +
+                                          $"'{nickname}' to unknown room '{roomName}'");
+                        break;
+                    }
+
+                    // User must own the room to authorise
+                    if (room.owner != this)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to NOT authorise "+
+                                          $"'{nickname}' to room '{roomName}' which they do not own.");
+                        break;
+                    }
+
+                    // Room must be encrypted
+                    if (!room.isEncrypted)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to NOT authorise " +
+                                          $"'{nickname}' to non-encrypted room '{roomName}'");
+                        break;
+                    }
+
+                    Console.WriteLine($"'{Nickname}' NOT authorising '{nickname}' to '{roomName}' ...");
+
+                    // Inform the client that they are not authorised.
+                    using (Packet packet2 = new Packet(PacketType.ServerClientEncryptedRoomAuthoriseFail))
+                    {
+                        packet2.Write(room.name);
+
+                        lock (client.sendSync)
+                        {
+                            packet2.WriteToStream(client.Writer);
+                            client.Writer.Flush();
+                        }
+                    }
+
+                    break;
+                }
+
+                // Encrypted room owner authorises the client to join.
+                case PacketType.ClientEncryptedRoomAuthorise:
+                {
+                    string roomName = packet.ReadString();
+                    string nickname = packet.ReadString();
+
+                    Console.WriteLine($"'{Nickname}' attempting to authorise '{nickname}' to '{roomName}' ...");
+
+                    // Client must exist.
+                    ChatServerClient? client = m_Server.GetClient(nickname);
+                    if (client is null)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to authorise " + 
+                                          $"unknown user '{nickname}' to room '{roomName}'");
+                        break;
+                    }
+
+                    // Get room
+                    ChatRoom? room = null;
+                    m_Server.EnumerateRoomsUntil((ChatRoom room2) =>
+                    {
+                        if (room2.name == roomName)
+                        {
+                            room = room2;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    // No such room to join
+                    if (room is null)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to authorise " +
+                                          $"'{nickname}' to unknown room '{roomName}'");
+                        break;
+                    }
+
+                    // User must own the room to authorise
+                    if (room.owner != this)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to authorise "+
+                                          $"'{nickname}' to room '{roomName}' which they do not own.");
+                        goto fail;
+                    }
+
+                    // Room must be encrypted
+                    if (!room.isEncrypted)
+                    {
+                        Console.WriteLine($"'{Nickname}' attempted to authorise " +
+                                          $"'{nickname}' to non-encrypted room '{roomName}'");
+                        goto fail;
+                    }
+
+                    Console.WriteLine($"'{Nickname}' authorising '{nickname}' to '{roomName}' ...");
+
+                    // Inform the client that they are authorised.
+                    using (Packet packet2 = new Packet(PacketType.ServerClientEncryptedRoomAuthorise))
+                    {
+                        packet2.Write(room.name);
+
+                        lock (client.sendSync)
+                        {
+                            packet2.WriteToStream(client.Writer);
+                            client.Writer.Flush();
+                        }
+                    }
+
+                    // Add the client to the encrypted room.
+                    m_Server.AddClientToRoom(client, room);
+
+                    break;
+
+                fail:
+                    // Inform the client that they are not authorised.
+                    using (Packet packet2 = new Packet(PacketType.ServerClientEncryptedRoomAuthoriseFail))
+                    {
+                        packet2.Write(room.name);
+
+                        lock (client.sendSync)
+                        {
+                            packet2.WriteToStream(client.Writer);
+                            client.Writer.Flush();
+                        }
+                    }
                     break;
                 }
             }
@@ -407,7 +602,9 @@ namespace Mikejzx.ChatServer
                         packet.ReadFromStream(Reader);
                     }
 
+                    packet.Lock();
                     HandlePacket(packet);
+                    packet.Unlock();
                 }
 
                 packet.Dispose();

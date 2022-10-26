@@ -16,6 +16,9 @@
     <Compile Update="ChatClientRoomCreateForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="ChatClientRoomPasswordForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="ReadOnlyRichTextBox.cs">
       <SubType>Component</SubType>
     </Compile>

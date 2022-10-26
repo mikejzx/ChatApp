@@ -49,7 +49,7 @@ namespace Mikejzx.ChatClient
 
             m_Client.OnError += (string msg) => { NoConnection(true); };
 
-            m_Client.OnConnectionLost += () => { NoConnection(true); };
+            m_Client.OnConnectionLost += () => { NoConnection(true, true); };
 
             m_Client.OnLoginNameChanged += (string name) => { lblMyName.Text = "Logged in as " + name; };
 
@@ -290,24 +290,37 @@ namespace Mikejzx.ChatClient
                 return (DialogResult)result.Tag == DialogResult.Yes;
             };
 
-            m_Client.OnRoomPasswordRequested += (ChatRoomChannel channel) =>
+            m_Client.OnRoomPasswordRequested += () =>
             {
-                // Show password input form.
-                // TODO
-                MessageBox.Show("Password requested");
+                // Show the password input form.
+                if (Program.roomPasswordForm is null)
+                    return null;
 
-                return false;
+                Program.roomPasswordForm.Reset();
+                Program.roomPasswordForm.ShowDialog(this);
+
+                string? password = Program.roomPasswordForm.GetPassword();
+                return password;
             };
 
             txtCompose.Focus();
         }
 
-        private void NoConnection(bool notConnected)
+        private void NoConnection(bool notConnected, bool inform=false)
         {
             lblServer.Text = $"Server: {m_Client.Hostname}:{m_Client.Port}";
 
             btnConnect.Enabled = notConnected;
             btnConnect.Text = notConnected ? "Reconnect" : "Connected";
+
+            if (notConnected && inform)
+            {
+                MessageBox.Show("Lost connection to the server.  " +
+                                "Click 'Reconnect' to attempt to reconnect.", 
+                                "Connection lost.",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+            }
         }
 
         private void RefreshChannelsList()

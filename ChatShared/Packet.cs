@@ -28,6 +28,14 @@ namespace Mikejzx.ChatShared
         // Client deletes their room.
         ClientRoomDelete,
 
+        // Client informing server that the given user's private key is correct
+        // and that they can join the room.
+        ClientEncryptedRoomAuthorise,
+
+        // Encrypted room owner informing server that given user's private key
+        // is incorrect and that they cannot join the room.
+        ClientEncryptedRoomAuthoriseFail,
+
         // Server sending us an error
         ServerError,
 
@@ -61,6 +69,18 @@ namespace Mikejzx.ChatShared
         // Server informing client of the members of a room
         ServerClientRoomMembers,
 
+        // Server informing encrypted room owner that a client is attempting to
+        // join the room.
+        ServerClientJoinEncryptedRoomRequest,
+
+        // Server informing client that their private key is correct and that
+        // they may join the encrypted room.
+        ServerClientEncryptedRoomAuthorise,
+
+        // Server informing client that their private key is incorrect and that
+        // they may not join the encrypted room.
+        ServerClientEncryptedRoomAuthoriseFail,
+
         // Server informing that a room was created
         ServerRoomCreated,
 
@@ -92,6 +112,12 @@ namespace Mikejzx.ChatShared
         private byte[]? m_ReadableBuffer;
 
         private bool m_Disposed = false;
+
+        // 'locked' packet is one which does not allow writing.
+        private bool m_IsLocked = false;
+
+        public void Lock() => m_IsLocked = true;
+        public void Unlock() => m_IsLocked = false;
 
         public int Length 
         {
@@ -159,14 +185,59 @@ namespace Mikejzx.ChatShared
         }
 
         // Write methods.
-        public void Write(byte data) => m_Buffer?.Add(data);
-        public void Write(byte[] data) => m_Buffer?.AddRange(data);
-        public void Write(bool data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
-        public void Write(uint data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
-        public void Write(int data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
-        public void Write(float data) => m_Buffer?.AddRange(BitConverter.GetBytes(data));
+        public void Write(byte data)
+        {
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
+            m_Buffer?.Add(data);
+        }
+
+        public void Write(byte[] data)
+        {
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
+            m_Buffer?.AddRange(data);
+        }
+
+        public void Write(bool data)
+        {
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
+            m_Buffer?.AddRange(BitConverter.GetBytes(data));
+        }
+
+        public void Write(uint data)
+        {
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
+            m_Buffer?.AddRange(BitConverter.GetBytes(data));
+        }
+
+        public void Write(int data) 
+        { 
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
+            m_Buffer?.AddRange(BitConverter.GetBytes(data)); 
+        }
+
+        public void Write(float data) 
+        { 
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
+            m_Buffer?.AddRange(BitConverter.GetBytes(data)); 
+        }
+
         public void Write(string data)
         {
+            if (m_IsLocked)
+                throw new Exception("Packet is locked for writing.");
+
             Write(data.Length);
             m_Buffer?.AddRange(Encoding.UTF8.GetBytes(data));
         }

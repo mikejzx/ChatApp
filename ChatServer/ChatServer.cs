@@ -311,6 +311,8 @@ namespace Mikejzx.ChatServer
                 // Add the client to the room list.
                 room.clients.Add(client);
 
+                Console.WriteLine($"'{client.Nickname}' joined room '{room.name}'");
+
                 // And add room to client's internal list.
                 lock(clientSync)
                     client.Rooms.Add(room);

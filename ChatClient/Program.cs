@@ -13,6 +13,9 @@ namespace Mikejzx.ChatClient
         // Form used for chatting
         public static ChatClientForm? chatForm;
 
+        // Form used for room password input
+        public static ChatClientRoomPasswordForm? roomPasswordForm;
+
         // Room creation forms
         public static List<ChatClientRoomCreateForm> roomCreateForms = new List<ChatClientRoomCreateForm>();
 
@@ -34,11 +37,14 @@ namespace Mikejzx.ChatClient
             client = new ChatClient("", ChatConstants.ServerPort);
             chatForm = new ChatClientForm(client);
             loginForm = new ChatClientLoginForm(client);
+            roomPasswordForm = new ChatClientRoomPasswordForm(client);
 
-            // Set both forms invisible by default.
-            loginForm.Visible = false;
-            chatForm.Visible = false;
+            // Hide forms by default.
+            loginForm.Hide();
+            chatForm.Hide();
+            roomPasswordForm.Hide();
 
+            // Show login form first.
             Application.Run(loginForm);
         }
 
@@ -46,9 +52,10 @@ namespace Mikejzx.ChatClient
         {
             // Close all room creator forms
             foreach (ChatClientRoomCreateForm form in roomCreateForms)
-            {
                 form.Close();
-            }
+
+            if (roomPasswordForm is not null)
+                roomPasswordForm.Close();
 
             // Disconnect the client
             if (client is not null)

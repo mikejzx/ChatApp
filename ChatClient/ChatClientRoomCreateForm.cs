@@ -35,8 +35,8 @@ namespace Mikejzx.ChatClient
             m_Client.OnRoomCreateSuccess += () => { Close(); };
             m_Client.OnRoomCreateFail += (string error) =>
             {
-                btnCreate.Enabled = true;
                 btnCreate.Text = "Create";
+                btnCreate.Enabled = true;
 
                 MessageBox.Show("Failed to create room: " + error, "Error");
             };
@@ -44,7 +44,8 @@ namespace Mikejzx.ChatClient
             // Create the room.
             m_Client.CreateRoom(roomName: txtName.Text, 
                                 roomTopic: txtTopic.Text, 
-                                roomEncrypted: chkEncrypt.Checked);
+                                roomEncrypted: chkEncrypt.Checked,
+                                roomPassword: txtPassword.Text);
         }
 
         private void UpdateCreateButtonEnabledState()

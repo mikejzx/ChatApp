@@ -40,9 +40,16 @@ namespace Mikejzx.ChatClient
         private List<ChatChannel> m_Channels = new List<ChatChannel>();
         public List<ChatChannel> Channels { get => m_Channels; }
 
-        // List of rooms that we created
+        // List of rooms that we created.
         private List<ChatRoomChannel> m_OwnedRooms = new List<ChatRoomChannel>();
         public List<ChatRoomChannel> OwnedRooms { get => m_OwnedRooms; }
+
+        // List of keys used for encrypted rooms.
+        private Dictionary<string, byte[]?> m_RoomKeychain = new Dictionary<string, byte[]?>();
+        public Dictionary<string, byte[]?> RoomKeychain { get => m_RoomKeychain; }
+
+        // Timeout in seconds to wait for password response.
+        private static readonly int RoomPasswordResponseTimeout = 5;
 
         // List of clients that are connected to the server.
         private Dictionary<string, ChatRecipient> m_Clients = new Dictionary<string, ChatRecipient>();
@@ -59,7 +66,8 @@ namespace Mikejzx.ChatClient
                 {
                     if (!m_Channels.Contains(value))
                     {
-                        MessageBox.Show($"Unknown channel");
+                        if (Form is not null)
+                            Form.Invoke(() => MessageBox.Show($"Unknown channel"));
                         return;
                     }
                 }
@@ -105,7 +113,11 @@ namespace Mikejzx.ChatClient
         public Action? OnRoomCreateSuccess;
         public Action<string>? OnRoomCreateFail;
         public Action<string>? OnRoomDeleteFail;
-        public Func<ChatRoomChannel, bool>? OnRoomPasswordRequested;
+        public Func<string?>? OnRoomPasswordRequested;
+        public Action? OnRoomPasswordPending;
+        public Action? OnRoomPasswordResponse;
+        public Action? OnRoomPasswordMismatch;
+        public Action? OnRoomPasswordCorrect;
 
         private bool m_InServer = false;
 
@@ -115,7 +127,28 @@ namespace Mikejzx.ChatClient
         private Form? m_Form = null;
         public Form? Form { get => m_Form; set => m_Form = value; }
 
+        private enum PasswordAwaitState
+        {
+            // Not waiting.
+            None,
+
+            // Waiting for response
+            Waiting,
+
+            // Password was incorrect.
+            Failed,
+
+            // Password was correct.
+            Successful,
+        };
+
+        // True if we are waiting for the server to validate our password when
+        // joining encrypted room.
+        private PasswordAwaitState m_PasswordAwait = PasswordAwaitState.None;
+
+        // Sync objects
         private readonly object m_ThreadStopSync = new object();
+        private readonly object m_PasswordAwaitSync = new object();
 
         public ChatClient(string nickname, int port)
         {
@@ -127,6 +160,9 @@ namespace Mikejzx.ChatClient
 
             lock(m_ThreadStopSync)
                 m_StopThread = false;
+
+            lock (m_PasswordAwaitSync)
+                m_PasswordAwait = PasswordAwaitState.None;
         }
 
         // Send a message to the current channel.
@@ -138,6 +174,9 @@ namespace Mikejzx.ChatClient
             // Need a channel
             if (Channel is null)
                 return;
+
+            bool isEncrypted = false;
+            byte[]? iv = null;
 
             // Create the message packet
             if (Channel.IsDirect)
@@ -162,6 +201,54 @@ namespace Mikejzx.ChatClient
             {
                 ChatRoomChannel rc = (ChatRoomChannel)Channel;
 
+                if (rc.isEncrypted)
+                {
+                    // Can't send if keychain is missing the key.
+                    if (!RoomKeychain.ContainsKey(rc.roomName))
+                    {
+                        ShowError($"No key for room '{rc.roomName}'");
+                        return;
+                    }
+
+                    byte[]? roomKey = RoomKeychain[rc.roomName];
+                    if (roomKey is null)
+                    {
+                        ShowError($"No key for room '{rc.roomName}'");
+                        return;
+                    }
+
+                    isEncrypted = true;
+
+                    // Encrypt the message.
+                    using (Aes aes = Aes.Create())
+                    {
+                        //aes.KeySize = 128; // bits
+                        aes.Mode = CipherMode.CBC;
+                        aes.Padding = PaddingMode.PKCS7;
+                        aes.BlockSize = 128; // bits
+                        aes.Key = roomKey;
+                        iv = aes.IV;
+
+                        ICryptoTransform encryptor = aes.CreateEncryptor();
+
+                        byte[] cipherMessage;
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            using (CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+                            {
+                                using (StreamWriter sw = new StreamWriter(cs))
+                                {
+                                    sw.Write(message);
+                                }
+                                cipherMessage = ms.ToArray();
+                            }
+                        }
+
+                        // Update the message with the cipher text.
+                        message = Convert.ToBase64String(cipherMessage);
+                    }
+                }
+
                 // Send room message
                 using (Packet packet = new Packet(PacketType.ClientRoomMessage))
                 {
@@ -171,6 +258,10 @@ namespace Mikejzx.ChatClient
                     // Write the message
                     packet.Write(message);
 
+                    // Append the IV
+                    if (isEncrypted && iv is not null)
+                        packet.Write(Convert.ToBase64String(iv));
+
                     // Send to the server.
                     packet.WriteToStream(m_Writer);
                     m_Writer.Flush();
@@ -179,10 +270,51 @@ namespace Mikejzx.ChatClient
         }
 
         // Create a chat room.
-        public void CreateRoom(string roomName, string roomTopic, bool roomEncrypted)
+        public void CreateRoom(string roomName, string roomTopic, bool roomEncrypted, string roomPassword="")
         {
             if (m_Writer is null)
                 return;
+
+            // If room name is already in use.
+            foreach (ChatChannel channel in Channels)
+            {
+                if (!channel.IsDirect &&
+                    ((ChatRoomChannel)channel).roomName == roomName)
+                {
+                    ShowError("Please specify a different room name.");
+                    return;
+                }
+            }
+
+            // Encrypted room.
+            if (roomEncrypted)
+            {
+                // Must have room password if encrypted.
+                if (string.IsNullOrEmpty(roomPassword))
+                {
+                    ShowError("Please specify a room password.");
+                    return;
+                }
+
+                // Derive secret key from the room password via PBKDF2.
+                byte[] passwordBytes = Encoding.UTF8.GetBytes(roomPassword);
+                //byte[] salt = RandomNumberGenerator.GetBytes(128);
+                byte[] salt = new byte[] { 0x01, 0x02, 0x03, 0x04, 
+                                           0x05, 0x06, 0x07, 0x08,
+                                           0x09, 0x0a, 0x0b, 0x0c,
+                                           0x0d, 0x0e, 0x0f, 0x10 };
+                byte[] key = Rfc2898DeriveBytes.Pbkdf2(password: passwordBytes,
+                                                       salt: salt,
+                                                       iterations: 8,
+                                                       hashAlgorithm: HashAlgorithmName.SHA512,
+                                                       outputLength: 128 / 8);
+
+                // Save the key to our keychain.
+                if (RoomKeychain.ContainsKey(roomName))
+                    RoomKeychain[roomName] = key;
+                else
+                    RoomKeychain.Add(roomName, key);
+            }
 
             // Create the packet
             using (Packet packet = new Packet(PacketType.ClientRoomCreate))
@@ -220,23 +352,171 @@ namespace Mikejzx.ChatClient
             }
         }
 
+        // Join an encrypted room (returns true if successful).
+        private bool JoinRoomEncrypted(ChatRoomChannel room)
+        {
+            if (m_Writer is null)
+                return false;
+
+            if (Form is null)
+                return false;
+
+            if (OnRoomPasswordRequested is null ||
+                OnRoomPasswordPending is null)
+            {
+                return false;
+            }
+
+            using (Aes aes = Aes.Create())
+            {
+                //aes.KeySize = 128; // bits
+                aes.Mode = CipherMode.CBC;
+                aes.Padding = PaddingMode.PKCS7;
+                aes.BlockSize = 128; // bits
+
+                string ivString = Convert.ToBase64String(aes.IV);
+
+                while (true)
+                {
+                    lock (m_PasswordAwaitSync)
+                        m_PasswordAwait = PasswordAwaitState.None;
+
+                    // Request the password from user.
+                    string? password = (string?)Form.Invoke(OnRoomPasswordRequested);
+                    if (password is null)
+                    {
+                        // User cancelled the operation.
+                        return false;
+                    }
+
+                    // Generate a secret key from the given password via PBKDF2.
+                    byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
+                    //byte[] salt = RandomNumberGenerator.GetBytes(128);
+                    byte[] salt = new byte[] { 0x01, 0x02, 0x03, 0x04, 
+                                               0x05, 0x06, 0x07, 0x08,
+                                               0x09, 0x0a, 0x0b, 0x0c,
+                                               0x0d, 0x0e, 0x0f, 0x10 };
+                    byte[] key = Rfc2898DeriveBytes.Pbkdf2(password: passwordBytes,
+                                                           salt: salt,
+                                                           iterations: 8,
+                                                           hashAlgorithm: HashAlgorithmName.SHA512,
+                                                           outputLength: 128 / 8);
+                    aes.Key = key;
+
+                    // Set the key in the keychain.
+                    if (RoomKeychain.ContainsKey(room.roomName))
+                        RoomKeychain[room.roomName] = key;
+                    else
+                        RoomKeychain.Add(room.roomName, key);
+
+                    string saltString = Convert.ToBase64String(salt);
+
+                    ICryptoTransform encryptor = aes.CreateEncryptor();
+
+                    // Encrypt <user name> + <room name> + <salt> with the derived key.
+                    string plaintextMessage = Nickname + room.roomName + saltString;
+                    byte[] cipherMessage;
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        using (CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+                        {
+                            using (StreamWriter sw = new StreamWriter(cs))
+                            {
+                                sw.Write(plaintextMessage);
+                            }
+                            cipherMessage = ms.ToArray();
+                        }
+                    }
+
+                    // Send a join request
+                    using (Packet packet = new Packet(PacketType.ClientRoomJoin))
+                    {
+                        // Write room name
+                        packet.Write(room.roomName);
+
+                        // Write the salt.
+                        packet.Write(saltString);
+
+                        // Write IV.
+                        packet.Write(ivString);
+
+                        // Write the join message to the server to be checked
+                        // for validity.
+                        packet.Write(Convert.ToBase64String(cipherMessage));
+
+                        // Send it to server.
+                        packet.WriteToStream(m_Writer);
+                        m_Writer.Flush();
+                    }
+
+                    // Set form as pending.
+                    Form.Invoke(OnRoomPasswordPending);
+
+                    // Set the awaiting flag.
+                    lock (m_PasswordAwaitSync)
+                        m_PasswordAwait = PasswordAwaitState.Waiting;
+
+                    // Block until we get a response from the server.
+                    DateTime startTime = DateTime.Now;
+                    for (;;)
+                    {
+                        lock (m_PasswordAwaitSync)
+                        {
+                            if (m_PasswordAwait != PasswordAwaitState.Waiting)
+                                break;
+                        }
+
+                        Thread.Sleep(100);
+
+                        // Timeout
+                        DateTime now = DateTime.Now;
+                        if ((now - startTime).TotalSeconds > RoomPasswordResponseTimeout)
+                        {
+                            ShowError("Server took too long to respond to password input.");
+                            break;
+                        }
+                    }
+
+                    if (OnRoomPasswordResponse is not null)
+                        Form.Invoke(OnRoomPasswordResponse);
+
+                    lock(m_PasswordAwaitSync)
+                    {
+                        switch (m_PasswordAwait)
+                        {
+                        // Password was incorrect
+                        case PasswordAwaitState.Failed:
+                            // Set the key in the keychain.
+                            if (RoomKeychain.ContainsKey(room.roomName))
+                                RoomKeychain[room.roomName] = null;
+
+                            if (OnRoomPasswordMismatch is not null)
+                                Form.Invoke(OnRoomPasswordMismatch);
+                            break;
+
+                        // Password was correct
+                        case PasswordAwaitState.Successful:
+                            if (OnRoomPasswordCorrect is not null)
+                                Form.Invoke(OnRoomPasswordCorrect);
+                            return true;
+
+                        // Time out
+                        default: break;
+                        }
+                    }
+                }
+            }
+        }
+
         // Join a room (returns true if successful).
         public bool JoinRoom(ChatRoomChannel room)
         {
             if (m_Writer is null)
                 return false;
 
-            // If the room is encrypted then we need to ask for a password.
-            if (room.isEncrypted && 
-                Form is not null && 
-                OnRoomPasswordRequested is not null)
-            {
-                if (!(bool)Form.Invoke(OnRoomPasswordRequested, room))
-                {
-                    // User aborted.
-                    return false;
-                }
-            }
+            // Handle encrypted room.
+            if (room.isEncrypted)
+                return JoinRoomEncrypted(room);
 
             // Create the packet
             using (Packet packet = new Packet(PacketType.ClientRoomJoin))
@@ -886,13 +1166,13 @@ namespace Mikejzx.ChatClient
                     string message = packet.ReadString();
 
                     // Append to the room's message list.
-                    ChatChannel? channel = null;
+                    ChatRoomChannel? channel = null;
                     foreach (ChatChannel channel2 in Channels)
                     {
                         if (!channel2.IsDirect && 
                             ((ChatRoomChannel)channel2).roomName == roomName)
                         {
-                            channel = channel2;
+                            channel = (ChatRoomChannel)channel2;
                             break;
                         }
                     }
@@ -901,6 +1181,61 @@ namespace Mikejzx.ChatClient
                     { 
                         ShowError($"Received message from unknown room {roomName}.");
                         break;
+                    }
+
+                    // Decrypt the message
+                    if (channel.isEncrypted)
+                    {
+                        string ivString = packet.ReadString();
+                        byte[] iv = Convert.FromBase64String(ivString);
+
+                        // Can't send if keychain is missing the key.
+                        if (!RoomKeychain.ContainsKey(channel.roomName))
+                        {
+                            ShowError($"No key for room '{channel.roomName}'");
+                            break;
+                        }
+
+                        byte[]? roomKey = RoomKeychain[channel.roomName];
+                        if (roomKey is null)
+                        {
+                            ShowError($"No key for room '{channel.roomName}'");
+                            break;
+                        }
+
+                        byte[] cipherMessage = Convert.FromBase64String(message);
+                        using (Aes aes = Aes.Create())
+                        {
+                            //aes.KeySize = 128; // bits
+                            aes.Mode = CipherMode.CBC;
+                            aes.Padding = PaddingMode.PKCS7;
+                            aes.BlockSize = 128; // bits
+                            aes.IV = iv;
+                            aes.Key = roomKey;
+
+                            ICryptoTransform decryptor = aes.CreateDecryptor();
+
+                            // Decrypt the message
+                            try
+                            {
+                                using (MemoryStream ms = new MemoryStream(cipherMessage))
+                                {
+                                    using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
+                                    {
+                                        using (StreamReader sr = new StreamReader(cs))
+                                        {
+                                            // Use the deciphered message
+                                            message = sr.ReadToEnd();
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception)
+                            {
+                                // Failure; presumably the key is wrong.
+                                message = "!! failed to decrypt !!";
+                            }
+                        }
                     }
 
                     ChatMessage addedMessage = channel.AddMessage(ChatMessageType.UserMessage, 
@@ -994,6 +1329,139 @@ namespace Mikejzx.ChatClient
 
                     break;
                 }
+
+                // Server tells us that a client is attempting to join
+                // encrypted room that we own.
+                case PacketType.ServerClientJoinEncryptedRoomRequest:
+                {
+                    if (m_Writer is null)
+                        break;
+
+                    string roomName = packet.ReadString();
+                    string nickname = packet.ReadString();
+                    string saltString = packet.ReadString();
+                    string ivString = packet.ReadString();
+                    string cipherMessageString = packet.ReadString();
+
+                    // Get the room from our list.
+                    ChatRoomChannel? room = null;
+                    foreach (ChatRoomChannel channel in m_OwnedRooms)
+                    {
+                        if (channel.roomName == roomName)
+                        {
+                            room = channel;
+                            break;
+                        }
+                    }
+
+                    // Ensure that the room exists
+                    if (room is null)
+                    {
+                        // Ignore the request; we are not the owner of the room.
+                        break;
+                    }
+
+                    // True if the decryption failed.
+                    bool failed = false;
+
+                    // Ensure we have the key.
+                    byte[]? roomKey = null; 
+
+                    if (RoomKeychain.ContainsKey(room.roomName))
+                        roomKey = RoomKeychain[room.roomName];
+
+                    if (roomKey is null)
+                        break;
+
+                    // Message that the encrypted message should decrypt to.
+                    string expectedMessage = nickname + roomName + saltString;
+
+                    // Convert from base64 to bytes.
+                    byte[] salt = Convert.FromBase64String(saltString);
+                    byte[] iv = Convert.FromBase64String(ivString);
+                    byte[] cipherMessage = Convert.FromBase64String(cipherMessageString);
+
+                    // Decrypt the string
+                    string? decryptedMessage = null;
+                    using (Aes aes = Aes.Create())
+                    {
+                        //aes.KeySize = 128; // bits
+                        aes.Mode = CipherMode.CBC;
+                        aes.Padding = PaddingMode.PKCS7;
+                        aes.BlockSize = 128; // bits
+                        aes.IV = iv;
+                        aes.Key = roomKey;
+
+                        ICryptoTransform decryptor = aes.CreateDecryptor();
+
+                        // Decrypt the message
+                        try
+                        {
+                            using (MemoryStream ms = new MemoryStream(cipherMessage))
+                            {
+                                using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
+                                {
+                                    using (StreamReader sr = new StreamReader(cs))
+                                    {
+                                        decryptedMessage = sr.ReadToEnd();
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // Failure; presumably the key is wrong.
+                            failed = true;
+                        }
+                    }
+
+                    // Check that the messages match.
+                    if (failed || 
+                        (decryptedMessage is not null && decryptedMessage != expectedMessage))
+                    {
+                        // Message does not match; do not authorise the user.
+                        using (Packet packet2 = new Packet(PacketType.ClientEncryptedRoomAuthoriseFail))
+                        {
+                            packet2.Write(roomName);
+                            packet2.Write(nickname);
+                            packet2.WriteToStream(m_Writer);
+                            m_Writer.Flush();
+                        }
+
+                        break;
+                    }
+
+                    // Message matches; we authorise the user.
+                    using (Packet packet2 = new Packet(PacketType.ClientEncryptedRoomAuthorise))
+                    {
+                        packet2.Write(roomName);
+                        packet2.Write(nickname);
+                        packet2.WriteToStream(m_Writer);
+                        m_Writer.Flush();
+                    }
+
+                    break;
+                }
+
+                // Server tells us that we are authorised into the encrypted
+                // room.
+                case PacketType.ServerClientEncryptedRoomAuthorise:
+                {
+                    lock (m_PasswordAwaitSync)
+                        m_PasswordAwait = PasswordAwaitState.Successful;
+
+                    break;
+                }
+
+                // Server tells us that we are not authorised into the
+                // encrypted room.
+                case PacketType.ServerClientEncryptedRoomAuthoriseFail:
+                {
+                    lock (m_PasswordAwaitSync)
+                        m_PasswordAwait = PasswordAwaitState.Failed;
+
+                    break;
+                }
             }
         }
 
@@ -1047,6 +1515,7 @@ namespace Mikejzx.ChatClient
             {
                 packet.Write(Nickname);
                 packet.WriteToStream(m_Writer);
+                m_Writer.Flush();
             }
 
             m_InServer = false;
@@ -1090,7 +1559,9 @@ namespace Mikejzx.ChatClient
                             }
                         }
 
+                        packet.Lock();
                         HandlePacket(packet);
+                        packet.Unlock();
                     }
                 }
                 catch (IOException)

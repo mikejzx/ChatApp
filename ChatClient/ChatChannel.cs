@@ -55,8 +55,8 @@ namespace Mikejzx.ChatClient
         // Whether room is encrypted
         public bool isEncrypted;
 
-        // The password the user has entered, for encrypted rooms.
-        public string roomPassword;
+        // The room's secret key, derived from the room password.
+        public byte[]? roomKey;
 
         // Whether we are a member of this room.
         public bool isJoined;
@@ -81,7 +81,7 @@ namespace Mikejzx.ChatClient
             this.roomName = roomName;
             this.roomTopic = roomTopic;
             this.isEncrypted = roomEncrypted;
-            this.roomPassword = string.Empty;
+            this.roomKey = null;
             this.messages = new List<ChatMessage>();
             this.unreadMessages = 0;
             this.isJoined = false;
