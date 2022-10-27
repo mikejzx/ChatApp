@@ -7,6 +7,21 @@ using Mikejzx.ChatShared;
 
 namespace Mikejzx.ChatClient
 {
+    public enum ChatClientPasswordAwaitState
+    {
+        // Not waiting.
+        None,
+
+        // Waiting for response
+        Waiting,
+
+        // Password was incorrect.
+        Failed,
+
+        // Password was correct.
+        Successful,
+    };
+
     public class ChatClient
     {
         // The nickname of the client.
@@ -18,8 +33,7 @@ namespace Mikejzx.ChatClient
             {
                 m_Nickname = value;
 
-                if (Form is not null && OnLoginNameChanged is not null)
-                    Form.Invoke(OnLoginNameChanged, m_Nickname);
+                Invoke(OnLoginNameChanged, m_Nickname);
             }
         }
 
@@ -35,6 +49,30 @@ namespace Mikejzx.ChatClient
         private SslStream? m_Stream;
         private BinaryReader? m_Reader;
         private BinaryWriter? m_Writer;
+
+        public BinaryReader Reader 
+        {
+            get
+            {
+                if (m_Reader is null)
+                    throw new NullReferenceException();
+
+                return m_Reader;
+            }
+        }
+
+        public BinaryWriter Writer 
+        {
+            get
+            {
+                if (m_Writer is null)
+                    throw new NullReferenceException();
+
+                return m_Writer;
+            }
+        }
+
+        private ChatClientPacketHandler m_PacketHandler;
 
         // List of message channels.
         private List<ChatChannel> m_Channels = new List<ChatChannel>();
@@ -66,8 +104,7 @@ namespace Mikejzx.ChatClient
                 {
                     if (!m_Channels.Contains(value))
                     {
-                        if (Form is not null)
-                            Form.Invoke(() => MessageBox.Show($"Unknown channel"));
+                        Invoke(() => MessageBox.Show($"Unknown channel"));
                         return;
                     }
                 }
@@ -86,8 +123,7 @@ namespace Mikejzx.ChatClient
                     m_Channel = value;
                 }
 
-                if (Form is not null && OnChannelChanged is not null)
-                    Form.Invoke(OnChannelChanged);
+                Invoke(OnChannelChanged);
             }
         }
 
@@ -120,49 +156,58 @@ namespace Mikejzx.ChatClient
         public Action? OnRoomPasswordCorrect;
 
         private bool m_InServer = false;
+        public bool InServer { get => m_InServer; set => m_InServer = value; }
 
         private bool m_StopThread = false;
         private Thread? m_Thread;
 
         private Form? m_Form = null;
-        public Form? Form { get => m_Form; set => m_Form = value; }
-
-        private enum PasswordAwaitState
+        public Form Form 
         {
-            // Not waiting.
-            None,
+            get
+            {
+                if (m_Form is null)
+                    throw new NullReferenceException();
 
-            // Waiting for response
-            Waiting,
+                return m_Form;
+            }
+            set => m_Form = value; 
+        }
 
-            // Password was incorrect.
-            Failed,
-
-            // Password was correct.
-            Successful,
-        };
-
-        // True if we are waiting for the server to validate our password when
-        // joining encrypted room.
-        private PasswordAwaitState m_PasswordAwait = PasswordAwaitState.None;
+        // Indicates current password awaiting state (e.g. waiting for validation).
+        public ChatClientPasswordAwaitState passwordAwait = ChatClientPasswordAwaitState.None;
 
         // Sync objects
-        private readonly object m_ThreadStopSync = new object();
-        private readonly object m_PasswordAwaitSync = new object();
+        public readonly object threadStopSync = new object();
+        public readonly object passwordAwaitSync = new object();
+
+        // Convert client to a string (i.e. get our nickname)
+        public override string ToString() => Nickname;
+
+        // Function invocation shorthand.
+        private object Invoke(Delegate? method, params object[] args)
+        {
+            if (m_Form is null || method is null)
+                return false;
+
+            return m_Form.Invoke(method, args);
+        }
 
         public ChatClient(string nickname, int port)
         {
-            Form = null;
+            m_Form = null;
             Nickname = nickname;
             Port = port;
-            m_InServer = false;
+            InServer = false;
             m_Channel = null;
 
-            lock(m_ThreadStopSync)
+            m_PacketHandler = new ChatClientPacketHandler(this);
+
+            lock(threadStopSync)
                 m_StopThread = false;
 
-            lock (m_PasswordAwaitSync)
-                m_PasswordAwait = PasswordAwaitState.None;
+            lock (passwordAwaitSync)
+                passwordAwait = ChatClientPasswordAwaitState.None;
         }
 
         // Send a message to the current channel.
@@ -193,8 +238,8 @@ namespace Mikejzx.ChatClient
                     packet.Write(message);
 
                     // Send to server.
-                    packet.WriteToStream(m_Writer);
-                    m_Writer.Flush();
+                    packet.WriteToStream(Writer);
+                    Writer.Flush();
                 }
             }
             else
@@ -263,8 +308,8 @@ namespace Mikejzx.ChatClient
                         packet.Write(Convert.ToBase64String(iv));
 
                     // Send to the server.
-                    packet.WriteToStream(m_Writer);
-                    m_Writer.Flush();
+                    packet.WriteToStream(Writer);
+                    Writer.Flush();
                 }
             }
         }
@@ -272,9 +317,6 @@ namespace Mikejzx.ChatClient
         // Create a chat room.
         public void CreateRoom(string roomName, string roomTopic, bool roomEncrypted, string roomPassword="")
         {
-            if (m_Writer is null)
-                return;
-
             // If room name is already in use.
             foreach (ChatChannel channel in Channels)
             {
@@ -296,18 +338,8 @@ namespace Mikejzx.ChatClient
                     return;
                 }
 
-                // Derive secret key from the room password via PBKDF2.
-                byte[] passwordBytes = Encoding.UTF8.GetBytes(roomPassword);
-                //byte[] salt = RandomNumberGenerator.GetBytes(128);
-                byte[] salt = new byte[] { 0x01, 0x02, 0x03, 0x04, 
-                                           0x05, 0x06, 0x07, 0x08,
-                                           0x09, 0x0a, 0x0b, 0x0c,
-                                           0x0d, 0x0e, 0x0f, 0x10 };
-                byte[] key = Rfc2898DeriveBytes.Pbkdf2(password: passwordBytes,
-                                                       salt: salt,
-                                                       iterations: 8,
-                                                       hashAlgorithm: HashAlgorithmName.SHA512,
-                                                       outputLength: 128 / 8);
+                // Derive secret key from the room password.
+                byte[] key = ChatClientCrypto.DeriveKey(roomPassword, ChatClientCrypto.Salt);
 
                 // Save the key to our keychain.
                 if (RoomKeychain.ContainsKey(roomName))
@@ -329,17 +361,14 @@ namespace Mikejzx.ChatClient
                 packet.Write(roomEncrypted);
 
                 // Send it to server.
-                packet.WriteToStream(m_Writer);
-                m_Writer.Flush();
+                packet.WriteToStream(Writer);
+                Writer.Flush();
             }
         }
 
         // Delete a room (must be owned by the client).
         public void DeleteRoom(string roomName)
         {
-            if (m_Writer is null)
-                return;
-
             // Create the packet
             using (Packet packet = new Packet(PacketType.ClientRoomDelete))
             {
@@ -347,162 +376,121 @@ namespace Mikejzx.ChatClient
                 packet.Write(roomName);
 
                 // Send it to server.
-                packet.WriteToStream(m_Writer);
-                m_Writer.Flush();
+                packet.WriteToStream(Writer);
+                Writer.Flush();
             }
         }
 
         // Join an encrypted room (returns true if successful).
         private bool JoinRoomEncrypted(ChatRoomChannel room)
         {
-            if (m_Writer is null)
-                return false;
-
-            if (Form is null)
-                return false;
-
             if (OnRoomPasswordRequested is null ||
                 OnRoomPasswordPending is null)
             {
                 return false;
             }
 
-            using (Aes aes = Aes.Create())
+            while (true)
             {
-                //aes.KeySize = 128; // bits
-                aes.Mode = CipherMode.CBC;
-                aes.Padding = PaddingMode.PKCS7;
-                aes.BlockSize = 128; // bits
+                lock (passwordAwaitSync)
+                    passwordAwait = ChatClientPasswordAwaitState.None;
 
-                string ivString = Convert.ToBase64String(aes.IV);
-
-                while (true)
+                // Request the password from user.
+                string? password = (string?)Invoke(OnRoomPasswordRequested);
+                if (password is null)
                 {
-                    lock (m_PasswordAwaitSync)
-                        m_PasswordAwait = PasswordAwaitState.None;
+                    // User cancelled the operation.
+                    return false;
+                }
 
-                    // Request the password from user.
-                    string? password = (string?)Form.Invoke(OnRoomPasswordRequested);
-                    if (password is null)
+                // Generate private key
+                byte[] key = ChatClientCrypto.DeriveKey(password, ChatClientCrypto.Salt);
+
+                // Set the key in the keychain.
+                if (RoomKeychain.ContainsKey(room.roomName))
+                    RoomKeychain[room.roomName] = key;
+                else
+                    RoomKeychain.Add(room.roomName, key);
+
+                // Create the initial message.
+                string plainText = Nickname + room.roomName + ChatClientCrypto.SaltString;
+
+                // Encrypt the message
+                CryptoCipher cipher = ChatClientCrypto.EncryptMessage(plainText, key);
+
+                // Send a join request
+                using (Packet packet = new Packet(PacketType.ClientRoomJoin))
+                {
+                    // Write room name
+                    packet.Write(room.roomName);
+
+                    // Write the salt.
+                    packet.Write(ChatClientCrypto.SaltString);
+
+                    // Write IV.
+                    packet.Write(cipher.IVString);
+
+                    // Write the join message to the server to be checked
+                    // for validity.
+                    packet.Write(cipher.CipherString);
+
+                    // Send it to server.
+                    packet.WriteToStream(Writer);
+                    Writer.Flush();
+                }
+
+                // Set form as pending.
+                Invoke(OnRoomPasswordPending);
+
+                // Set the awaiting flag.
+                lock (passwordAwaitSync)
+                    passwordAwait = ChatClientPasswordAwaitState.Waiting;
+
+                // Block until we get a response from the server.
+                DateTime startTime = DateTime.Now;
+                for (;;)
+                {
+                    lock (passwordAwaitSync)
                     {
-                        // User cancelled the operation.
-                        return false;
-                    }
-
-                    // Generate a secret key from the given password via PBKDF2.
-                    byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
-                    //byte[] salt = RandomNumberGenerator.GetBytes(128);
-                    byte[] salt = new byte[] { 0x01, 0x02, 0x03, 0x04, 
-                                               0x05, 0x06, 0x07, 0x08,
-                                               0x09, 0x0a, 0x0b, 0x0c,
-                                               0x0d, 0x0e, 0x0f, 0x10 };
-                    byte[] key = Rfc2898DeriveBytes.Pbkdf2(password: passwordBytes,
-                                                           salt: salt,
-                                                           iterations: 8,
-                                                           hashAlgorithm: HashAlgorithmName.SHA512,
-                                                           outputLength: 128 / 8);
-                    aes.Key = key;
-
-                    // Set the key in the keychain.
-                    if (RoomKeychain.ContainsKey(room.roomName))
-                        RoomKeychain[room.roomName] = key;
-                    else
-                        RoomKeychain.Add(room.roomName, key);
-
-                    string saltString = Convert.ToBase64String(salt);
-
-                    ICryptoTransform encryptor = aes.CreateEncryptor();
-
-                    // Encrypt <user name> + <room name> + <salt> with the derived key.
-                    string plaintextMessage = Nickname + room.roomName + saltString;
-                    byte[] cipherMessage;
-                    using (MemoryStream ms = new MemoryStream())
-                    {
-                        using (CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
-                        {
-                            using (StreamWriter sw = new StreamWriter(cs))
-                            {
-                                sw.Write(plaintextMessage);
-                            }
-                            cipherMessage = ms.ToArray();
-                        }
-                    }
-
-                    // Send a join request
-                    using (Packet packet = new Packet(PacketType.ClientRoomJoin))
-                    {
-                        // Write room name
-                        packet.Write(room.roomName);
-
-                        // Write the salt.
-                        packet.Write(saltString);
-
-                        // Write IV.
-                        packet.Write(ivString);
-
-                        // Write the join message to the server to be checked
-                        // for validity.
-                        packet.Write(Convert.ToBase64String(cipherMessage));
-
-                        // Send it to server.
-                        packet.WriteToStream(m_Writer);
-                        m_Writer.Flush();
-                    }
-
-                    // Set form as pending.
-                    Form.Invoke(OnRoomPasswordPending);
-
-                    // Set the awaiting flag.
-                    lock (m_PasswordAwaitSync)
-                        m_PasswordAwait = PasswordAwaitState.Waiting;
-
-                    // Block until we get a response from the server.
-                    DateTime startTime = DateTime.Now;
-                    for (;;)
-                    {
-                        lock (m_PasswordAwaitSync)
-                        {
-                            if (m_PasswordAwait != PasswordAwaitState.Waiting)
-                                break;
-                        }
-
-                        Thread.Sleep(100);
-
-                        // Timeout
-                        DateTime now = DateTime.Now;
-                        if ((now - startTime).TotalSeconds > RoomPasswordResponseTimeout)
-                        {
-                            ShowError("Server took too long to respond to password input.");
+                        if (passwordAwait != ChatClientPasswordAwaitState.Waiting)
                             break;
-                        }
                     }
 
-                    if (OnRoomPasswordResponse is not null)
-                        Form.Invoke(OnRoomPasswordResponse);
+                    Thread.Sleep(100);
 
-                    lock(m_PasswordAwaitSync)
+                    // Check for timeout, so we don't freeze the application
+                    // for too long.
+                    DateTime now = DateTime.Now;
+                    if ((now - startTime).TotalSeconds > RoomPasswordResponseTimeout)
                     {
-                        switch (m_PasswordAwait)
-                        {
-                        // Password was incorrect
-                        case PasswordAwaitState.Failed:
-                            // Set the key in the keychain.
-                            if (RoomKeychain.ContainsKey(room.roomName))
-                                RoomKeychain[room.roomName] = null;
+                        ShowError("Server took too long to respond to password input.");
+                        break;
+                    }
+                }
 
-                            if (OnRoomPasswordMismatch is not null)
-                                Form.Invoke(OnRoomPasswordMismatch);
-                            break;
+                Invoke(OnRoomPasswordResponse);
 
-                        // Password was correct
-                        case PasswordAwaitState.Successful:
-                            if (OnRoomPasswordCorrect is not null)
-                                Form.Invoke(OnRoomPasswordCorrect);
-                            return true;
+                lock(passwordAwaitSync)
+                {
+                    switch (passwordAwait)
+                    {
+                    // Password was incorrect
+                    case ChatClientPasswordAwaitState.Failed:
+                        // Set the key in the keychain.
+                        if (RoomKeychain.ContainsKey(room.roomName))
+                            RoomKeychain[room.roomName] = null;
 
-                        // Time out
-                        default: break;
-                        }
+                        Invoke(OnRoomPasswordMismatch);
+
+                        break;
+
+                    // Password was correct
+                    case ChatClientPasswordAwaitState.Successful:
+                        Invoke(OnRoomPasswordCorrect);
+                        return true;
+
+                    // Time out
+                    default: break;
                     }
                 }
             }
@@ -511,9 +499,6 @@ namespace Mikejzx.ChatClient
         // Join a room (returns true if successful).
         public bool JoinRoom(ChatRoomChannel room)
         {
-            if (m_Writer is null)
-                return false;
-
             // Handle encrypted room.
             if (room.isEncrypted)
                 return JoinRoomEncrypted(room);
@@ -525,8 +510,8 @@ namespace Mikejzx.ChatClient
                 packet.Write(room.roomName);
 
                 // Send it to server.
-                packet.WriteToStream(m_Writer);
-                m_Writer.Flush();
+                packet.WriteToStream(Writer);
+                Writer.Flush();
             }
 
             return true;
@@ -560,13 +545,13 @@ namespace Mikejzx.ChatClient
 
             if (m_Thread is not null)
             {
-                lock(m_ThreadStopSync)
+                lock(threadStopSync)
                     m_StopThread = true;
 
                 //m_Thread.Join();
             }
 
-            m_InServer = false;
+            InServer = false;
         }
 
         public void Disconnect()
@@ -576,8 +561,8 @@ namespace Mikejzx.ChatClient
             {
                 using (Packet packet = new Packet(PacketType.ClientDisconnect))
                 {
-                    packet.WriteToStream(m_Writer);
-                    m_Writer.Flush();
+                    packet.WriteToStream(Writer);
+                    Writer.Flush();
                 }
             }
 
@@ -588,16 +573,12 @@ namespace Mikejzx.ChatClient
             Cleanup();
         }
 
-        private void ShowError(string msg)
-        {
-            if (Form is not null && OnError is not null)
-                Form.Invoke(OnError, msg);
-        }
+        private void ShowError(string msg) => Invoke(OnError, msg);
 
         // Establish connection to host.
         public void Connect()
         {
-            lock(m_ThreadStopSync)
+            lock(threadStopSync)
                 m_StopThread = false;
 
             // Start the worker thread.
@@ -635,7 +616,7 @@ namespace Mikejzx.ChatClient
                         string[] columns = line.Split(" ");
 
                         // Invalid line.
-                        if (columns.Count() != 2)
+                        if (columns.Length != 2)
                             continue;
 
                         // Store hostname and fingerprint.
@@ -652,13 +633,11 @@ namespace Mikejzx.ChatClient
                 {
                     // First time seeing this certificate, so we add it.
                     trustedCertificates.Add(certName, certFingerprint);
-                    if (Form != null && OnCertificateFirstTime != null)
+
+                    if (!(bool)Invoke(OnCertificateFirstTime, cert))
                     {
-                        if (!(bool)Form.Invoke(OnCertificateFirstTime, cert))
-                        {
-                            // User rejected the first certificate.
-                            return false;
-                        }
+                        // User rejected the first certificate.
+                        return false;
                     }
                 }
                 else
@@ -667,23 +646,16 @@ namespace Mikejzx.ChatClient
                     if (trustedCertificates[certName] != certFingerprint)
                     {
                         // Warn user if hashes do not match
-                        if (Form != null && OnCertificateChanged != null)
+                        if (!(bool)Invoke(OnCertificateChanged,
+                                          cert,
+                                          trustedCertificates[certName]))
                         {
-                            if (!(bool)Form.Invoke(OnCertificateChanged,
-                                                   cert,
-                                                   trustedCertificates[certName]))
-                            {
-                                // User rejected the certificate
-                                return false;
-                            }
-
-                            // User trusts new certificate; we replace it.
-                            trustedCertificates[certName] = certFingerprint;
-                        }
-                        else
-                        {
+                            // User rejected the certificate
                             return false;
                         }
+
+                        // User trusts new certificate; we replace it.
+                        trustedCertificates[certName] = certFingerprint;
                     }
                 }
             }
@@ -733,738 +705,6 @@ namespace Mikejzx.ChatClient
             return GetDirectChannelForClient(m_Clients[nickname]);
         }
 
-        private void HandlePacket(Packet packet)
-        {
-            switch (packet.PacketType)
-            {
-                // Server welcomes us into the server.
-                case PacketType.ServerWelcome:
-                { 
-                    m_InServer = true;
-
-                    if (Form is not null && OnConnectionSuccess is not null)
-                        Form.Invoke(OnConnectionSuccess);
-
-                    break;
-                }
-
-                // Server sends us an error message.
-                case PacketType.ServerError:
-                { 
-                    PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
-                    string msg = packet.ReadString();
-
-                    ShowError(msg);
-
-                    break;
-                }
-
-                // Server sends us current client list.
-                case PacketType.ServerClientList:
-                {
-                    int count = packet.ReadInt32();
-
-                    foreach (ChatRecipient client in m_Clients.Values)
-                    {
-                        // Set each client as unjoined, and then whoever is in
-                        // the server client list is set to joined.
-                        client.isJoined = false;
-                    }
-
-                    for (int i = 0; i < count; ++i)
-                    {
-                        string nickname = packet.ReadString();
-
-                        // Skip ourself
-                        if (nickname == Nickname)
-                            continue;
-
-                        // Check if we already have the client.
-                        if (!m_Clients.ContainsKey(nickname))
-                        {
-                            // Add the client.
-                            ChatRecipient addedRecipient = new ChatRecipient(nickname, true);
-                            m_Clients.Add(nickname, addedRecipient);
-
-                            // Create the direct channel for the new recipient.
-                            Channels.Add(new ChatDirectChannel(addedRecipient));
-                        }
-                        else
-                        {
-                            // Set them as joined.
-                            m_Clients[nickname].isJoined = true;
-                        }
-                    }
-
-                    // Update channel list.
-                    if (Form is not null && OnChannelListUpdate is not null)
-                        Form.Invoke(OnChannelListUpdate);
-
-                    break;
-                }
-
-                // Server sends us current room list.
-                case PacketType.ServerRoomList:
-                {
-                    int count = packet.ReadInt32();
-
-                    // Clear old rooms.
-                    foreach (ChatChannel channel in Channels)
-                    {
-                        if (!channel.IsDirect)
-                            Channels.Remove(channel);
-                    }
-
-                    for (int i = 0; i < count; ++i)
-                    {
-                        string roomName = packet.ReadString();
-                        string roomTopic = packet.ReadString();
-                        bool roomEncrypted = packet.ReadBool();
-
-                        // Create channel for the room.
-                        ChatRoomChannel channel = new ChatRoomChannel(roomName, roomTopic, roomEncrypted);
-                        Channels.Add(channel);
-                    }
-
-                    // Update channel list.
-                    if (Form is not null && OnChannelListUpdate is not null)
-                        Form.Invoke(OnChannelListUpdate);
-
-                    break;
-                }
-
-                // Server sends us the members of a room (e.g. on room join)
-                case PacketType.ServerClientRoomMembers:
-                {
-                    string roomName = packet.ReadString();
-                    int memberCount = packet.ReadInt32();
-
-                    // Find the channel
-                    ChatChannel? channel = null;
-                    foreach (ChatChannel channel2 in Channels)
-                    {
-                        if (!channel2.IsDirect && 
-                            ((ChatRoomChannel)channel2).roomName == roomName)
-                        {
-                            channel = channel2;
-                            break;
-                        }
-                    }
-
-                    if (channel is null)
-                    {
-                        ShowError($"Got members for unknown room '{roomName}'");
-                        break;
-                    }
-
-                    channel.recipients.Clear();
-
-                    for (int i = 0; i < memberCount; ++i)
-                    {
-                        string clientName = packet.ReadString();
-
-                        if (clientName == Nickname)
-                        {
-                            // We are a member of this room.
-                            ((ChatRoomChannel)channel).isJoined = true;
-
-                            continue;
-                        }
-
-                        // Ensure we have the client.
-                        if (!m_Clients.ContainsKey(clientName))
-                        {
-                            ShowError($"Room contains unknown user {clientName}");
-                            continue;
-                        }
-
-                        // Add the client to the channel
-                        channel.recipients.Add(m_Clients[clientName]);
-                    }
-
-                    break;
-                }
-
-                // Server tells us that a client joined.
-                case PacketType.ServerClientJoin:
-                { 
-                    // Read their nickname
-                    string nickname = packet.ReadString();
-
-                    // Skip ourself just to be safe.
-                    if (nickname == Nickname)
-                        break;
-
-                    // Add the client (or set it as joined if they are unjoined).
-                    if (!m_Clients.ContainsKey(nickname))
-                    {
-                        ChatRecipient joinedRecipient = new ChatRecipient(nickname, true);
-                        m_Clients.Add(nickname, joinedRecipient);
-
-                        // Create a direct channel for the user
-                        Channels.Add(new ChatDirectChannel(joinedRecipient));
-                    }
-                    else
-                    {
-                        m_Clients[nickname].isJoined = true;
-                    }
-
-                    // Iterate over the channels that the joining client is a
-                    // part of (e.g. it's direct-message channel).
-                    foreach (ChatChannel c in Channels)
-                    {
-                        if (!c.ContainsRecipient(m_Clients[nickname]))
-                            continue;
-
-                        // Append join message
-                        ChatMessage msg = c.AddMessage(ChatMessageType.UserJoin, nickname);
-
-                        // Update active channel message list.
-                        if (c == Channel && Form is not null && OnClientJoinCurrentChannel is not null)
-                            Form.Invoke(OnClientJoinCurrentChannel, m_Clients[nickname], msg);
-                    }
-
-                    // Run channel list change callback.
-                    if (Form is not null && OnChannelListUpdate is not null)
-                        Form.Invoke(OnChannelListUpdate);
-
-                    // Run client join callback
-                    if (Form is not null && OnClientJoin is not null)
-                        Form.Invoke(OnClientJoin, m_Clients[nickname]);
-
-                    break;
-                }
-
-                // Server tells us that a client left
-                case PacketType.ServerClientLeave:
-                { 
-                    // Read their nickname
-                    string nickname = packet.ReadString();
-
-                    // Skip ourself just to be safe.
-                    if (nickname == Nickname)
-                        break;
-
-                    // Unknown client left
-                    if (!m_Clients.ContainsKey(nickname))
-                        break;
-
-                    // Set client as unjoined.
-                    m_Clients[nickname].isJoined = false;
-
-                    // Append unjoin message to all channels that are relevant
-                    // to the client.
-                    foreach (ChatChannel c in Channels)
-                    {
-                        if (!c.ContainsRecipient(m_Clients[nickname]))
-                            continue;
-
-                        // Append join message
-                        ChatMessage msg = c.AddMessage(ChatMessageType.UserLeave, nickname);
-
-                        // Update active channel message list.
-                        if (c == Channel && Form is not null && OnClientLeaveCurrentChannel is not null)
-                            Form.Invoke(OnClientLeaveCurrentChannel, m_Clients[nickname], msg);
-                    }
-
-                    // Run client exit callback
-                    if (Form is not null && OnClientLeave is not null)
-                        Form.Invoke(OnClientLeave, m_Clients[nickname]);
-
-                    break;
-                }
-
-                // Server tells us that a client joined the room.
-                case PacketType.ServerClientRoomJoin:
-                {
-                    // Read their nickname
-                    string roomName = packet.ReadString();
-                    string nickname = packet.ReadString();
-
-                    // Get room
-                    ChatRoomChannel? room = null;
-                    foreach (ChatChannel channel in m_Channels)
-                    {
-                        if (!channel.IsDirect && 
-                            ((ChatRoomChannel)channel).roomName == roomName)
-                        {
-                            room = (ChatRoomChannel)channel;
-                            break;
-                        }
-                    }
-
-                    // Joined unknown room.
-                    if (room is null)
-                    {
-                        ShowError($"Client '{nickname}' joined unknown room '{roomName}'.");
-                        break;
-                    }
-
-                    // Skip if the room already contains recipient
-                    if (room.ContainsRecipient(nickname))
-                        break;
-
-                    // Unknown client joined
-                    if (nickname != Nickname &&
-                        !m_Clients.ContainsKey(nickname))
-                    {
-                        ShowError($"Unknown client '{nickname}' joined room '{roomName}'.");
-                        break;
-                    }
-
-                    // Add client to the room recipients
-                    if (nickname != Nickname)
-                    {
-                        room.recipients.Add(m_Clients[nickname]);
-                    }
-                    else
-                    {
-                        // If this packet gets sent to us with our own nickname
-                        // it indicates us joining a room that we created.
-                        room.isJoined = true;
-
-                        m_OwnedRooms.Add(room);
-
-                        if (Form is not null && OnRoomCreateSuccess is not null)
-                            Form.Invoke(OnRoomCreateSuccess);
-
-                        break;
-                    }
-
-                    // Append join message
-                    ChatMessage msg = room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
-
-                    if (Form is not null)
-                    {
-                        // Update active channel message list.
-                        if (room == Channel && OnClientJoinCurrentRoom is not null)
-                            Form.Invoke(OnClientJoinCurrentRoom, m_Clients[nickname], msg);
-
-                        // Run client join callback
-                        if (OnClientJoinRoom is not null)
-                            Form.Invoke(OnClientJoinRoom, m_Clients[nickname]);
-                    }
-
-                    break;
-                }
-
-                // Server tells us that a client left the room.
-                case PacketType.ServerClientRoomLeave:
-                {
-                    // Read their nickname
-                    string roomName = packet.ReadString();
-                    string nickname = packet.ReadString();
-
-                    // Skip ourself just to be safe.
-                    if (nickname == Nickname)
-                        break;
-
-                    // Get room
-                    ChatRoomChannel? room = null;
-                    foreach (ChatChannel channel in m_Channels)
-                    {
-                        if (!channel.IsDirect && 
-                            ((ChatRoomChannel)channel).roomName == roomName)
-                        {
-                            room = (ChatRoomChannel)channel;
-                        }
-                    }
-
-                    // Left unknown room.
-                    if (room is null)
-                        break;
-
-                    // Unknown client left
-                    if (!m_Clients.ContainsKey(nickname) || 
-                        !room.ContainsRecipient(nickname))
-                        break;
-
-                    // Remove client from the room recipients
-                    room.recipients.Remove(m_Clients[nickname]);
-
-                    // Append leave message
-                    ChatMessage msg = room.AddMessage(ChatMessageType.UserLeaveRoom, nickname);
-
-                    if (Form is not null)
-                    {
-                        // Update active channel message list.
-                        if (room == Channel && OnClientLeaveCurrentRoom is not null)
-                            Form.Invoke(OnClientLeaveCurrentRoom, m_Clients[nickname], msg);
-
-                        // Run client leave callback
-                        if (OnClientLeaveRoom is not null)
-                            Form.Invoke(OnClientLeaveRoom, m_Clients[nickname]);
-                    }
-
-                    break;
-                }
-
-                // Server tells us that we received a direct message
-                case PacketType.ServerDirectMessageReceived:
-                { 
-                    // Read who the message was sent from.
-                    string sender = packet.ReadString();
-
-                    // Read recipient that message was sent to.
-                    string recipient = packet.ReadString();
-
-                    // Read the message
-                    string message = packet.ReadString();
-
-                    // Determine under whose name the message should be stored.
-                    string channelName;
-                    if (sender == m_Nickname)
-                        channelName = recipient;
-                    else
-                        channelName = sender;
-
-                    // Append to the channel's message list.
-                    ChatChannel? channel = null;
-                    foreach (ChatChannel channel2 in Channels)
-                    {
-                        if (channel2.IsDirect && channel2.ContainsRecipient(channelName))
-                        {
-                            channel = channel2;
-                            break;
-                        }
-                    }
-
-                    if (channel is null)
-                    { 
-                        ShowError($"Received message from unknown user {channelName}.");
-                        break;
-                    }
-
-                    ChatMessage addedMessage = channel.AddMessage(ChatMessageType.UserMessage, 
-                                                                  sender, 
-                                                                  message);
-
-                    if (Form is not null && OnMessageReceived is not null)
-                    {
-                        if (!(bool)Form.Invoke(OnMessageReceived, channel, addedMessage))
-                        {
-                            ++channel.unreadMessages;
-
-                            // Update the client list to show the unread messages.
-                            if (OnChannelListUpdate is not null)
-                                Form.Invoke(OnChannelListUpdate);
-                        }
-                    }
-
-                    break;
-                }
-
-                case PacketType.ServerRoomMessageReceived:
-                {
-                    // Read who the message was sent from.
-                    string sender = packet.ReadString();
-
-                    // Read room that message was sent to.
-                    string roomName = packet.ReadString();
-
-                    // Read the message itself.
-                    string message = packet.ReadString();
-
-                    // Append to the room's message list.
-                    ChatRoomChannel? channel = null;
-                    foreach (ChatChannel channel2 in Channels)
-                    {
-                        if (!channel2.IsDirect && 
-                            ((ChatRoomChannel)channel2).roomName == roomName)
-                        {
-                            channel = (ChatRoomChannel)channel2;
-                            break;
-                        }
-                    }
-
-                    if (channel is null)
-                    { 
-                        ShowError($"Received message from unknown room {roomName}.");
-                        break;
-                    }
-
-                    // Decrypt the message
-                    if (channel.isEncrypted)
-                    {
-                        string ivString = packet.ReadString();
-                        byte[] iv = Convert.FromBase64String(ivString);
-
-                        // Can't send if keychain is missing the key.
-                        if (!RoomKeychain.ContainsKey(channel.roomName))
-                        {
-                            ShowError($"No key for room '{channel.roomName}'");
-                            break;
-                        }
-
-                        byte[]? roomKey = RoomKeychain[channel.roomName];
-                        if (roomKey is null)
-                        {
-                            ShowError($"No key for room '{channel.roomName}'");
-                            break;
-                        }
-
-                        byte[] cipherMessage = Convert.FromBase64String(message);
-                        using (Aes aes = Aes.Create())
-                        {
-                            //aes.KeySize = 128; // bits
-                            aes.Mode = CipherMode.CBC;
-                            aes.Padding = PaddingMode.PKCS7;
-                            aes.BlockSize = 128; // bits
-                            aes.IV = iv;
-                            aes.Key = roomKey;
-
-                            ICryptoTransform decryptor = aes.CreateDecryptor();
-
-                            // Decrypt the message
-                            try
-                            {
-                                using (MemoryStream ms = new MemoryStream(cipherMessage))
-                                {
-                                    using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
-                                    {
-                                        using (StreamReader sr = new StreamReader(cs))
-                                        {
-                                            // Use the deciphered message
-                                            message = sr.ReadToEnd();
-                                        }
-                                    }
-                                }
-                            }
-                            catch (Exception)
-                            {
-                                // Failure; presumably the key is wrong.
-                                message = "!! failed to decrypt !!";
-                            }
-                        }
-                    }
-
-                    ChatMessage addedMessage = channel.AddMessage(ChatMessageType.UserMessage, 
-                                                                  sender, 
-                                                                  message);
-
-                    if (Form is not null && OnMessageReceived is not null)
-                    {
-                        if (!(bool)Form.Invoke(OnMessageReceived, channel, addedMessage))
-                        {
-                            ++channel.unreadMessages;
-
-                            // Update the channel list to show the unread messages.
-                            if (OnChannelListUpdate is not null)
-                                Form.Invoke(OnChannelListUpdate);
-                        }
-                    }
-
-                    break;
-                }
-
-                // Server tells us that a room was created
-                case PacketType.ServerRoomCreated:
-                {
-                    string roomName = packet.ReadString();
-                    string roomTopic = packet.ReadString();
-                    bool roomEncrypted = packet.ReadBool();
-
-                    // Add the room channel.
-                    ChatRoomChannel channel = new ChatRoomChannel(roomName, roomTopic, roomEncrypted);
-                    Channels.Add(channel);
-
-                    // Run channel list changed callback.
-                    if (Form is not null && OnChannelListUpdate is not null)
-                        Form.Invoke(OnChannelListUpdate);
-
-                    break;
-                }
-
-                // Server tells us that a room was deleted
-                case PacketType.ServerRoomDeleted:
-                {
-                    string roomName = packet.ReadString();
-
-                    // Delete the room channel.
-                    foreach (ChatChannel channel in Channels)
-                    {
-                        if (!channel.IsDirect && 
-                            ((ChatRoomChannel)channel).roomName == roomName)
-                        {
-                            // Get out of the room if we are in it.
-                            if (Channel == channel)
-                                Channel = null;
-
-                            // Remove from owned rooms
-                            OwnedRooms.Remove((ChatRoomChannel)channel);
-
-                            Channels.Remove(channel);
-
-                            // Run channel list changed callback.
-                            if (Form is not null && OnChannelListUpdate is not null)
-                                Form.Invoke(OnChannelListUpdate);
-
-                            break;
-                        }
-                    }
-
-                    break;
-                }
-
-                // Server tells us that our room creation failed.
-                case PacketType.ServerRoomCreateError:
-                {
-                    PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
-                    string msg = packet.ReadString();
-
-                    if (Form is not null && OnRoomCreateFail is not null)
-                        Form.Invoke(OnRoomCreateFail, msg);
-
-                    break;
-                }
-
-                // Server tells us that our room deletion failed.
-                case PacketType.ServerRoomDeleteError:
-                {
-                    PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
-                    string msg = packet.ReadString();
-
-                    if (Form is not null && OnRoomDeleteFail is not null)
-                        Form.Invoke(OnRoomDeleteFail, msg);
-
-                    break;
-                }
-
-                // Server tells us that a client is attempting to join
-                // encrypted room that we own.
-                case PacketType.ServerClientJoinEncryptedRoomRequest:
-                {
-                    if (m_Writer is null)
-                        break;
-
-                    string roomName = packet.ReadString();
-                    string nickname = packet.ReadString();
-                    string saltString = packet.ReadString();
-                    string ivString = packet.ReadString();
-                    string cipherMessageString = packet.ReadString();
-
-                    // Get the room from our list.
-                    ChatRoomChannel? room = null;
-                    foreach (ChatRoomChannel channel in m_OwnedRooms)
-                    {
-                        if (channel.roomName == roomName)
-                        {
-                            room = channel;
-                            break;
-                        }
-                    }
-
-                    // Ensure that the room exists
-                    if (room is null)
-                    {
-                        // Ignore the request; we are not the owner of the room.
-                        break;
-                    }
-
-                    // True if the decryption failed.
-                    bool failed = false;
-
-                    // Ensure we have the key.
-                    byte[]? roomKey = null; 
-
-                    if (RoomKeychain.ContainsKey(room.roomName))
-                        roomKey = RoomKeychain[room.roomName];
-
-                    if (roomKey is null)
-                        break;
-
-                    // Message that the encrypted message should decrypt to.
-                    string expectedMessage = nickname + roomName + saltString;
-
-                    // Convert from base64 to bytes.
-                    byte[] salt = Convert.FromBase64String(saltString);
-                    byte[] iv = Convert.FromBase64String(ivString);
-                    byte[] cipherMessage = Convert.FromBase64String(cipherMessageString);
-
-                    // Decrypt the string
-                    string? decryptedMessage = null;
-                    using (Aes aes = Aes.Create())
-                    {
-                        //aes.KeySize = 128; // bits
-                        aes.Mode = CipherMode.CBC;
-                        aes.Padding = PaddingMode.PKCS7;
-                        aes.BlockSize = 128; // bits
-                        aes.IV = iv;
-                        aes.Key = roomKey;
-
-                        ICryptoTransform decryptor = aes.CreateDecryptor();
-
-                        // Decrypt the message
-                        try
-                        {
-                            using (MemoryStream ms = new MemoryStream(cipherMessage))
-                            {
-                                using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
-                                {
-                                    using (StreamReader sr = new StreamReader(cs))
-                                    {
-                                        decryptedMessage = sr.ReadToEnd();
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception)
-                        {
-                            // Failure; presumably the key is wrong.
-                            failed = true;
-                        }
-                    }
-
-                    // Check that the messages match.
-                    if (failed || 
-                        (decryptedMessage is not null && decryptedMessage != expectedMessage))
-                    {
-                        // Message does not match; do not authorise the user.
-                        using (Packet packet2 = new Packet(PacketType.ClientEncryptedRoomAuthoriseFail))
-                        {
-                            packet2.Write(roomName);
-                            packet2.Write(nickname);
-                            packet2.WriteToStream(m_Writer);
-                            m_Writer.Flush();
-                        }
-
-                        break;
-                    }
-
-                    // Message matches; we authorise the user.
-                    using (Packet packet2 = new Packet(PacketType.ClientEncryptedRoomAuthorise))
-                    {
-                        packet2.Write(roomName);
-                        packet2.Write(nickname);
-                        packet2.WriteToStream(m_Writer);
-                        m_Writer.Flush();
-                    }
-
-                    break;
-                }
-
-                // Server tells us that we are authorised into the encrypted
-                // room.
-                case PacketType.ServerClientEncryptedRoomAuthorise:
-                {
-                    lock (m_PasswordAwaitSync)
-                        m_PasswordAwait = PasswordAwaitState.Successful;
-
-                    break;
-                }
-
-                // Server tells us that we are not authorised into the
-                // encrypted room.
-                case PacketType.ServerClientEncryptedRoomAuthoriseFail:
-                {
-                    lock (m_PasswordAwaitSync)
-                        m_PasswordAwait = PasswordAwaitState.Failed;
-
-                    break;
-                }
-            }
-        }
-
         private void Run()
         {
             // Establish TCP connection
@@ -1483,7 +723,7 @@ namespace Mikejzx.ChatClient
                                      leaveInnerStreamOpen: false,
                                      userCertificateValidationCallback: ValidateCertificate);
 
-            SslClientAuthenticationOptions options = new SslClientAuthenticationOptions();
+            SslClientAuthenticationOptions options = new();
             options.TargetHost = Hostname;
 
             try
@@ -1493,8 +733,7 @@ namespace Mikejzx.ChatClient
             catch (System.Security.Authentication.AuthenticationException)
             {
                 // Validation failed; certificate is untrusted.
-                if (Form is not null && OnCertificateValidationFailed is not null)
-                    Form.Invoke(OnCertificateValidationFailed);
+                Invoke(OnCertificateValidationFailed);
 
                 return;
             }
@@ -1518,11 +757,11 @@ namespace Mikejzx.ChatClient
                 m_Writer.Flush();
             }
 
-            m_InServer = false;
+            InServer = false;
 
             while (true)
             {
-                lock (m_ThreadStopSync)
+                lock (threadStopSync)
                 {
                     if (m_StopThread)
                         break;
@@ -1537,10 +776,10 @@ namespace Mikejzx.ChatClient
                     //    continue;
 
                     // Read next packet.
-                    using (Packet packet = new Packet(m_Reader))
+                    using (Packet packet = new Packet(Reader))
                     {
                         // We are not "in" the server yet; so we only expect a ServerWelcome packet.
-                        if (!m_InServer)
+                        if (!InServer)
                         {
                             if (packet.PacketType == PacketType.ServerError)
                             {
@@ -1559,41 +798,36 @@ namespace Mikejzx.ChatClient
                             }
                         }
 
-                        packet.Lock();
-                        HandlePacket(packet);
-                        packet.Unlock();
+                        m_PacketHandler.Handle(packet);
                     }
                 }
                 catch (IOException)
                 {
-                    if (m_InServer)
+                    if (InServer)
                     {
-                        if (Form is not null && OnConnectionLost is not null)
-                            Form.Invoke(OnConnectionLost);
+                        Invoke(OnConnectionLost);
                     }
-                    m_InServer = false;
+                    InServer = false;
                     Cleanup();
                     return;
                 }
                 catch (ObjectDisposedException)
                 {
-                    if (m_InServer)
+                    if (InServer)
                     {
-                        if (Form is not null && OnConnectionLost is not null)
-                            Form.Invoke(OnConnectionLost);
+                        Invoke(OnConnectionLost);
                     }
-                    m_InServer = false;
+                    InServer = false;
                     Cleanup();
                     return;
                 }
                 catch (Exception e)
                 {
-                    if (m_InServer)
+                    if (InServer)
                     {
-                        if (Form is not null && OnConnectionLost is not null)
-                            Form.Invoke(OnConnectionLost);
+                        Invoke(OnConnectionLost);
                     }
-                    m_InServer = false;
+                    InServer = false;
                     Cleanup();
 
                     ShowError($"Exception: {e.Message}");

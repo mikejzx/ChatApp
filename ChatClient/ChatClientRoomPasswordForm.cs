@@ -38,6 +38,7 @@ namespace Mikejzx.ChatClient
 
         private void ChatClientRoomPasswordForm_Shown(object sender, EventArgs e)
         {
+            // Reset the input field when shown.
             Reset();
         }
 
@@ -50,21 +51,37 @@ namespace Mikejzx.ChatClient
             return txtPassword.Text;
         }
 
+        // Adjust buttons depending on current password length (so we don't send empty strings)>
+        private void CheckLength()
+        {
+            btnOk.Enabled = txtPassword.TextLength > 0;
+        }
+
         // Reset the input field
         public void Reset()
         {
             txtPassword.ResetText();
-            btnOk.Enabled = true;
+            CheckLength();
             txtPassword.Focus();
+        }
+
+        private void txtPassword_TextChanged(object sender, EventArgs e)
+        {
+            // Check the length of the new text.
+            CheckLength();
         }
 
         private void btnOk_Click(object sender, EventArgs e)
         {
+            // Set result and close the form.
+            DialogResult = DialogResult.OK;
             Close();
         }
 
         private void btnCancel_Click(object sender, EventArgs e)
         {
+            // Set result and close the form.
+            DialogResult = DialogResult.Cancel;
             Close();
         }
     }

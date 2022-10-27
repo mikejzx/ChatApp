@@ -292,15 +292,17 @@ namespace Mikejzx.ChatClient
 
             m_Client.OnRoomPasswordRequested += () =>
             {
-                // Show the password input form.
                 if (Program.roomPasswordForm is null)
                     return null;
 
+                // Show the password input form.
                 Program.roomPasswordForm.Reset();
-                Program.roomPasswordForm.ShowDialog(this);
+                if (Program.roomPasswordForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    return Program.roomPasswordForm.GetPassword();
+                }
 
-                string? password = Program.roomPasswordForm.GetPassword();
-                return password;
+                return null;
             };
 
             txtCompose.Focus();
