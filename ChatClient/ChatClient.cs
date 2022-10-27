@@ -320,10 +320,9 @@ namespace Mikejzx.ChatClient
             // If room name is already in use.
             foreach (ChatChannel channel in Channels)
             {
-                if (!channel.IsDirect &&
-                    ((ChatRoomChannel)channel).roomName == roomName)
+                if (channel.IsRoomChannel(roomName))
                 {
-                    ShowError("Please specify a different room name.");
+                    Invoke(OnRoomCreateFail, "Please specify a different room name.");
                     return;
                 }
             }
@@ -334,7 +333,7 @@ namespace Mikejzx.ChatClient
                 // Must have room password if encrypted.
                 if (string.IsNullOrEmpty(roomPassword))
                 {
-                    ShowError("Please specify a room password.");
+                    Invoke(OnRoomCreateFail, "Please specify a room password.");
                     return;
                 }
 
@@ -688,10 +687,8 @@ namespace Mikejzx.ChatClient
         {
             foreach (ChatChannel channel2 in Channels)
             {
-                if (channel2.IsDirect && channel2.ContainsRecipient(recipient))
-                {
+                if (channel2.IsDirectChannel(recipient.nickname))
                     return (ChatDirectChannel)channel2;
-                }
             }
 
             return null;

@@ -159,15 +159,12 @@ namespace Mikejzx.ChatClient
             Invoke(m_Client.OnChannelListUpdate);
         }
 
-        private bool ChannelIsRoom(ChatChannel channel, string name)
-            => !channel.IsDirect && ((ChatRoomChannel)channel).roomName == name;
-
         // Find room channel by name.
         private ChatRoomChannel? FindRoom(string roomName)
         {
             foreach (ChatChannel channel in m_Client.Channels)
             {
-                if (ChannelIsRoom(channel, roomName))
+                if (channel.IsRoomChannel(roomName))
                     return (ChatRoomChannel)channel;
             }
 
@@ -179,7 +176,7 @@ namespace Mikejzx.ChatClient
         {
             foreach (ChatChannel channel in m_Client.OwnedRooms)
             {
-                if (ChannelIsRoom(channel, roomName))
+                if (channel.IsRoomChannel(roomName))
                     return (ChatRoomChannel)channel;
             }
 
@@ -191,7 +188,7 @@ namespace Mikejzx.ChatClient
         {
             foreach (ChatChannel channel in m_Client.Channels)
             {
-                if (channel.IsDirect && channel.ContainsRecipient(userName))
+                if (channel.IsDirectChannel(userName))
                     return (ChatDirectChannel)channel;
             }
 

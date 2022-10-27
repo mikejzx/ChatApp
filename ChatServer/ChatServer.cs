@@ -142,7 +142,8 @@ namespace Mikejzx.ChatServer
 
             // Create the main room that all users are in by default.
             m_Rooms.Clear();
-            m_Rooms.Add(MainRoomName, new ChatRoom(null, MainRoomName, MainRoomTopic, false));
+            m_Rooms.Add(MainRoomName, new ChatRoom(null, MainRoomName, MainRoomTopic, 
+                                                   isEncrypted: false, isGlobal: true));
 
             // Create TCP listener socket.
             TcpListener listener;
@@ -308,6 +309,21 @@ namespace Mikejzx.ChatServer
                     }
                 }
 
+                // If there is nobody in the room; we become the new owner.
+                if (!room.IsGlobal && room.owner is null)
+                {
+                    if (room.clients.Count > 0)
+                    {
+                        // Warn of any unusual state; this is not supposed to occur.
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"Non-global room '{room.name}' has clients in it but didn't have an owner.");
+                        Console.ResetColor();
+                    }
+
+                    Console.WriteLine($"'{client.Nickname}' is the new owner of room '{room.name}'");
+                    room.owner = client;
+                } 
+
                 // Add the client to the room list.
                 room.clients.Add(client);
 
@@ -378,6 +394,53 @@ namespace Mikejzx.ChatServer
                 lock(clientSync)
                     client.Rooms.Remove(room);
 
+                // Handle case of room owner leaving the room.
+                if (client == room.owner)
+                {
+                    if (room.clients.Count > 0)
+                    {
+                        // Normally we simply set the owner as the next
+                        // available person in the room.
+                        room.owner = room.clients.First();
+
+                        Console.WriteLine($"Room '{room.name}' has new owner '{room.owner.Nickname}'");
+
+                        // TODO: inform of new ownership.
+                    }
+                    else
+                    {
+                        if (room.isEncrypted)
+                        {
+                            Console.WriteLine($"Encrypted room '{room.name}' has no owner and is being deleted.");
+
+                            // If this is an encrypted room; we need to delete the
+                            // room, as there is no-longer anyone who is able to
+                            // authorise people to join it (nobody to check the keys).
+                            //
+                            // This can be avoided in future if we implement a
+                            // system where the owner themselves is not responsible
+                            // for authorising; instead, the initial owner uploads
+                            // a special message to the server that is encrypted
+                            // with the room private key, that joining clients must
+                            // also send in order to be considered.
+                            DeleteRoom(room);
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Room '{room.name}' has no owner.");
+
+                            // Non-encrypted room.  It is fine if there is no
+                            // owner.  The new owner is the next person that joins
+                            // the room.
+                            room.owner = null;
+                        }
+
+                        // There are no clients to inform of the user leaving,
+                        // so we can exit.
+                        return;
+                    }
+                }
+
                 // Send leave message to the other clients in the room.
                 using (Packet packet = new Packet(PacketType.ServerClientRoomLeave))
                 {
@@ -400,15 +463,15 @@ namespace Mikejzx.ChatServer
         {
             lock(clientSync)
             {
+                // Remove the client from the client list.
+                bool rc = m_Clients.Remove(client.Nickname);
+
                 // Remove client from it's rooms
                 List<ChatRoom> roomsTmp = new List<ChatRoom>(client.Rooms);
                 foreach (ChatRoom room in roomsTmp)
                 {
                     RemoveClientFromRoom(client, room);
                 }
-
-                // Remove the client from the client list.
-                bool rc = m_Clients.Remove(client.Nickname);
 
                 if (rc)
                     Console.WriteLine($"{client.Nickname} left the server.");

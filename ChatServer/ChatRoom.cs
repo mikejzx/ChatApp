@@ -27,12 +27,18 @@ namespace Mikejzx.ChatServer
         // know.  This is a form of end-to-end encryption.
         public bool isEncrypted;
 
-        public ChatRoom(ChatServerClient? owner, string name, string topic, bool isEncrypted=false)
+        // True if the room is a 'global room' managed by the server.
+        private bool m_IsGlobal;
+        public bool IsGlobal { get => m_IsGlobal; }
+
+        public ChatRoom(ChatServerClient? owner, string name, string topic, bool isEncrypted=false, bool isGlobal=false)
         {
             this.owner = owner;
             this.name = name;
             this.topic = topic;
             this.isEncrypted = isEncrypted;
+            this.m_IsGlobal = isGlobal;
+
             clients.Clear();
 
             // Add the owner to the clients list.

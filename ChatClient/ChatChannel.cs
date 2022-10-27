@@ -36,6 +36,10 @@ namespace Mikejzx.ChatClient
 
         public override bool IsDirect { get => true; }
 
+        public override bool IsRoomChannel(string roomName) => false;
+
+        public override bool IsDirectChannel(string recipient) => this.Recipient.nickname == recipient;
+
         public ChatDirectChannel(ChatRecipient recipient)
         {
             this.recipients = new List<ChatRecipient>() { recipient };
@@ -75,6 +79,10 @@ namespace Mikejzx.ChatClient
 
         public override bool IsDirect { get => false; }
 
+        public override bool IsRoomChannel(string roomName) => this.roomName == roomName;
+
+        public override bool IsDirectChannel(string roomName) => false;
+
         public ChatRoomChannel(string roomName, string roomTopic, bool roomEncrypted)
         {
             this.recipients = new List<ChatRecipient>();
@@ -104,6 +112,12 @@ namespace Mikejzx.ChatClient
 
         // Whether this is a direct message channel
         public abstract bool IsDirect { get; }
+
+        // Returns true if this is a room channel with the given name.
+        public abstract bool IsRoomChannel(string roomName);
+
+        // Returns true if this is a direct message channel with the given name.
+        public abstract bool IsDirectChannel(string directName);
 
         // Add message to the channel's message history
         public ChatMessage AddMessage(ChatMessageType type, string sender, string message="")

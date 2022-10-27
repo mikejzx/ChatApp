@@ -32,13 +32,14 @@ namespace Mikejzx.ChatClient
             btnCreate.Enabled = false;
             btnCreate.Text = "Creating ...";
 
-            m_Client.OnRoomCreateSuccess += () => { Close(); };
-            m_Client.OnRoomCreateFail += (string error) =>
+            m_Client.OnRoomCreateSuccess = () => { Close(); };
+            m_Client.OnRoomCreateFail = (string error) =>
             {
+                MessageBox.Show("Failed to create room: " + error, "Error", 
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+
                 btnCreate.Text = "Create";
                 btnCreate.Enabled = true;
-
-                MessageBox.Show("Failed to create room: " + error, "Error");
             };
 
             // Create the room.
