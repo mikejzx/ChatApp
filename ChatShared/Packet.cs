@@ -69,6 +69,9 @@ namespace Mikejzx.ChatShared
         // Server informing client of the members of a room
         ServerClientRoomMembers,
 
+        // Server informing client of the message history of a room
+        ServerClientRoomMessages,
+
         // Server informing encrypted room owner that a client is attempting to
         // join the room.
         ServerClientJoinEncryptedRoomRequest,
@@ -92,17 +95,26 @@ namespace Mikejzx.ChatShared
 
         // Server informing client that room deletion failed
         ServerRoomDeleteError,
+
+        // Server informing client that the room's owner changed.
+        ServerRoomOwnerChange,
     }
 
     public enum PacketErrorCode : uint
     {
         OK,
 
+        // Unknown error occurred
+        UnknownError,
+
         // The given nickname is invalid.
         InvalidNickname,
 
         // The room name is already taken.
         RoomNameTaken,
+
+        // The password is incorrect
+        PasswordMismatch,
     }
 
     public class Packet : IDisposable

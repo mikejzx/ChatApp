@@ -93,6 +93,7 @@
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.Name = "ChatClientLoginForm";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "Chat Client Login";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.ChatClientLoginForm_FormClosing);
             this.Load += new System.EventHandler(this.Form1_Load);

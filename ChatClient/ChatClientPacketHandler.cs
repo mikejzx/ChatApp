@@ -24,6 +24,7 @@ namespace Mikejzx.ChatClient
                 { PacketType.ServerClientList, ServerClientList },
                 { PacketType.ServerRoomList, ServerRoomList },
                 { PacketType.ServerClientRoomMembers, ServerClientRoomMembers },
+                { PacketType.ServerClientRoomMessages, ServerClientRoomMessages },
                 { PacketType.ServerClientJoin, ServerClientJoin },
                 { PacketType.ServerClientLeave, ServerClientLeave },
                 { PacketType.ServerClientRoomJoin, ServerClientRoomJoin },
@@ -34,6 +35,7 @@ namespace Mikejzx.ChatClient
                 { PacketType.ServerRoomDeleted, ServerRoomDeleted },
                 { PacketType.ServerRoomCreateError, ServerRoomCreateError },
                 { PacketType.ServerRoomDeleteError, ServerRoomDeleteError },
+                { PacketType.ServerRoomOwnerChange, ServerRoomOwnerChange },
                 { PacketType.ServerClientJoinEncryptedRoomRequest, ServerClientJoinEncryptedRoomRequest },
                 { PacketType.ServerClientEncryptedRoomAuthorise, ServerClientEncryptedRoomAuthorise },
                 { PacketType.ServerClientEncryptedRoomAuthoriseFail, ServerClientEncryptedRoomAuthoriseFail },
@@ -112,6 +114,7 @@ namespace Mikejzx.ChatClient
                     continue;
 
                 // Check if we already have the client.
+                ChatChannel? channel = null;
                 if (!m_Client.Clients.ContainsKey(nickname))
                 {
                     // Add the client.
@@ -119,13 +122,20 @@ namespace Mikejzx.ChatClient
                     m_Client.Clients.Add(nickname, addedRecipient);
 
                     // Create the direct channel for the new recipient.
-                    m_Client.Channels.Add(new ChatDirectChannel(addedRecipient));
+                    channel = new ChatDirectChannel(addedRecipient);
+                    m_Client.Channels.Add(channel);
                 }
                 else
                 {
                     // Set them as joined.
                     m_Client.Clients[nickname].isJoined = true;
+
+                    channel = FindDirectMessageChannel(nickname);
                 }
+
+                // Add our server join message.
+                if (channel is not null)
+                    channel.AddMessage(ChatMessageType.UserJoin, m_Client.ToString());
             }
 
             // Update channel list.
@@ -234,6 +244,84 @@ namespace Mikejzx.ChatClient
             }
         }
 
+        // Server sends us the messages of a room (e.g. on room join)
+        private void ServerClientRoomMessages(Packet packet)
+        {
+            string roomName = packet.ReadString();
+            int messageCount = packet.ReadInt32();
+
+            // Find the channel
+            ChatRoomChannel? channel = FindRoom(roomName);
+            if (channel is null)
+            {
+                ShowError($"Got messages for unknown room '{roomName}'");
+                return;
+            }
+
+            channel.messages.Clear();
+
+            for (int i = 0; i < messageCount; ++i)
+            {
+                int messageType = packet.ReadInt32();
+                string messageAuthor = packet.ReadString();
+                string messageString = packet.ReadString();
+
+                string? finalMessage = null;
+
+                if (string.IsNullOrEmpty(messageString))
+                    finalMessage = null;
+                else
+                {
+                    if (!channel.isEncrypted || 
+                        (ChatMessageType)messageType != ChatMessageType.UserMessage)
+                    { 
+                        finalMessage = messageString;
+                    }
+                    else
+                    {
+                        // Decrypt the message
+                        string ivString = packet.ReadString();
+
+                        if (string.IsNullOrEmpty(ivString))
+                        {
+                            finalMessage = "!! failed to decrypt (missing IV) !!";
+                        }
+                        else
+                        {
+                            // Can't send if keychain is missing the key.
+                            if (!m_Client.RoomKeychain.ContainsKey(channel.roomName))
+                            {
+                                ShowError($"No key for room '{channel.roomName}'");
+                                return;
+                            }
+
+                            byte[]? roomKey = m_Client.RoomKeychain[channel.roomName];
+                            if (roomKey is null)
+                            {
+                                ShowError($"No key for room '{channel.roomName}'");
+                                return;
+                            }
+
+                            // Decrypt the cipher text and update the message.
+                            CryptoCipher cipher = new CryptoCipher(ivString, messageString);
+                            finalMessage = ChatClientCrypto.DecryptMessage(cipher, roomKey, out _);
+                        }
+                    }
+                }
+
+                // Create the message
+                ChatMessage message = new ChatMessage((ChatMessageType)messageType, 
+                                                      messageAuthor,
+                                                      finalMessage);
+
+                // Add this message to the local room history.
+                channel.AddMessage(message);
+            }
+
+            // Display the new room message list.
+            Invoke(m_Client.OnRoomMessageListReceived, channel);
+        }
+
         // Server tells us that a client joined.
         private void ServerClientJoin(Packet packet)
         {
@@ -251,7 +339,8 @@ namespace Mikejzx.ChatClient
                 m_Client.Clients.Add(nickname, joinedRecipient);
 
                 // Create a direct channel for the user
-                m_Client.Channels.Add(new ChatDirectChannel(joinedRecipient));
+                ChatChannel channel = new ChatDirectChannel(joinedRecipient);
+                m_Client.Channels.Add(channel);
             }
             else
             {
@@ -259,18 +348,15 @@ namespace Mikejzx.ChatClient
             }
 
             // Iterate over the channels that the joining client is a
-            // part of (e.g. it's direct-message channel, and global room).
-            foreach (ChatChannel c in m_Client.Channels)
+            // part of (e.g. it's direct-message channel, and rooms).
+            foreach (ChatChannel channel in m_Client.Channels)
             {
-                if (!c.ContainsRecipient(m_Client.Clients[nickname]))
+                if (!channel.ContainsRecipient(m_Client.Clients[nickname]))
                     continue;
 
                 // Append join message
-                ChatMessage msg = c.AddMessage(ChatMessageType.UserJoin, nickname);
-
-                // Update active channel message list.
-                if (c == m_Client.Channel)
-                    Invoke(m_Client.OnClientJoinCurrentChannel, m_Client.Clients[nickname], msg);
+                ChatMessage msg = channel.AddMessage(ChatMessageType.UserJoin, nickname);
+                Invoke(m_Client.OnMessageReceived, channel, msg);
             }
 
             // Run channel list change callback.
@@ -301,17 +387,14 @@ namespace Mikejzx.ChatClient
 
             // Append unjoin message to all channels that are relevant
             // to the client.
-            foreach (ChatChannel c in m_Client.Channels)
+            foreach (ChatChannel channel in m_Client.Channels)
             {
-                if (!c.ContainsRecipient(m_Client.Clients[nickname]))
+                if (!channel.ContainsRecipient(m_Client.Clients[nickname]))
                     continue;
 
-                // Append join message
-                ChatMessage msg = c.AddMessage(ChatMessageType.UserLeave, nickname);
-
-                // Update active channel message list.
-                if (c == m_Client.Channel)
-                    Invoke(m_Client.OnClientLeaveCurrentChannel, m_Client.Clients[nickname], msg);
+                // Append leave message
+                ChatMessage msg = channel.AddMessage(ChatMessageType.UserLeave, nickname);
+                Invoke(m_Client.OnMessageReceived, channel, msg);
             }
 
             // Run client exit callback
@@ -340,8 +423,18 @@ namespace Mikejzx.ChatClient
             if (nickname == m_Client.ToString())
             {
                 // If this packet gets sent to us with our own nickname
-                // it indicates us joining a room that we created.
+                // it indicates us joining a room that we just created.
                 room.isJoined = true;
+
+                // Append the create message
+                room.AddMessage(ChatMessageType.RoomCreated, nickname);
+
+                // Append current topic message.
+                if (!string.IsNullOrEmpty(room.roomTopic))
+                    room.AddMessage(ChatMessageType.RoomTopicSet, nickname, room.roomTopic);
+
+                // Append our join message
+                room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
 
                 m_Client.OwnedRooms.Add(room);
 
@@ -360,15 +453,9 @@ namespace Mikejzx.ChatClient
             // Add client to the room recipients
             room.recipients.Add(m_Client.Clients[nickname]);
 
-            // Append join message
+            // Append room join message
             ChatMessage msg = room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
-
-            // Update active channel message list.
-            if (room == m_Client.Channel)
-                Invoke(m_Client.OnClientJoinCurrentRoom, m_Client.Clients[nickname], msg);
-
-            // Run client join callback
-            Invoke(m_Client.OnClientJoinRoom, m_Client.Clients[nickname]);
+            Invoke(m_Client.OnMessageReceived, room, msg);
         }
 
         // Server tells us that a client left the room.
@@ -397,15 +484,9 @@ namespace Mikejzx.ChatClient
             // Remove client from the room recipients
             room.recipients.Remove(m_Client.Clients[nickname]);
 
-            // Append leave message
+            // Append room leave message
             ChatMessage msg = room.AddMessage(ChatMessageType.UserLeaveRoom, nickname);
-
-            // Update active channel message list.
-            if (room == m_Client.Channel)
-                Invoke(m_Client.OnClientLeaveCurrentRoom, m_Client.Clients[nickname], msg);
-
-            // Run client leave callback
-            Invoke(m_Client.OnClientLeaveRoom, m_Client.Clients[nickname]);
+            Invoke(m_Client.OnMessageReceived, room, msg);
         }
 
         // Server tells us that we received a direct message
@@ -563,6 +644,32 @@ namespace Mikejzx.ChatClient
             Invoke(m_Client.OnRoomDeleteFail, msg);
         }
 
+        // Server tells us that the room owner changed
+        private void ServerRoomOwnerChange(Packet packet)
+        {
+            string roomName = packet.ReadString();
+            string ownerName = packet.ReadString();
+
+            ChatRoomChannel? room = FindRoom(roomName);
+            if (room is null)
+            {
+                // Unknown room.
+                return;
+            }
+
+            // We just add a message.
+            ChatMessage msg = room.AddMessage(ChatMessageType.RoomOwnerChanged, ownerName);
+
+            // Update the displayed message.
+            Invoke(m_Client.OnMessageReceived, room, msg);
+
+            // If we are the owner, we add the room to our owned room list.
+            if (ownerName == m_Client.ToString())
+            {
+                m_Client.OwnedRooms.Add(room);
+            }
+        }
+
         // Server tells us that a client is attempting to join
         // encrypted room that we own.
         private void ServerClientJoinEncryptedRoomRequest(Packet packet)
@@ -578,6 +685,14 @@ namespace Mikejzx.ChatClient
             if (room is null)
             {
                 // Ignore the request; we are not the owner of the room.
+                using (Packet packet2 = new Packet(PacketType.ClientEncryptedRoomAuthoriseFail))
+                {
+                    packet2.Write(roomName);
+                    packet2.Write(nickname);
+                    packet2.Write((int)PacketErrorCode.UnknownError);
+                    packet2.WriteToStream(m_Client.Writer);
+                    m_Client.Writer.Flush();
+                }
                 return;
             }
 
@@ -604,6 +719,7 @@ namespace Mikejzx.ChatClient
                 {
                     packet2.Write(roomName);
                     packet2.Write(nickname);
+                    packet2.Write((int)PacketErrorCode.PasswordMismatch);
                     packet2.WriteToStream(m_Client.Writer);
                     m_Client.Writer.Flush();
                 }
@@ -634,9 +750,20 @@ namespace Mikejzx.ChatClient
         // encrypted room.
         private void ServerClientEncryptedRoomAuthoriseFail(Packet packet)
         {
+            // Don't need the room name.
+            packet.ReadString();
+
+            // Read the error code.
+            PacketErrorCode code = (PacketErrorCode)packet.ReadInt32();
+
             // Indicate that our password was rejected.
             lock (m_Client.passwordAwaitSync)
-                m_Client.passwordAwait = ChatClientPasswordAwaitState.Failed;
+            {
+                if (code == PacketErrorCode.PasswordMismatch)
+                    m_Client.passwordAwait = ChatClientPasswordAwaitState.Incorrect;
+                else
+                    m_Client.passwordAwait = ChatClientPasswordAwaitState.UnknownError;
+            }
         }
     }
 }

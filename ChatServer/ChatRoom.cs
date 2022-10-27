@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Mikejzx.ChatShared;
 
 namespace Mikejzx.ChatServer
 {
@@ -31,19 +27,36 @@ namespace Mikejzx.ChatServer
         private bool m_IsGlobal;
         public bool IsGlobal { get => m_IsGlobal; }
 
+        // Room message history
+        private List<ChatMessage> m_Messages;
+        public List<ChatMessage> Messages { get => m_Messages; }
+
         public ChatRoom(ChatServerClient? owner, string name, string topic, bool isEncrypted=false, bool isGlobal=false)
         {
             this.owner = owner;
             this.name = name;
             this.topic = topic;
             this.isEncrypted = isEncrypted;
+
             this.m_IsGlobal = isGlobal;
+            this.m_Messages = new List<ChatMessage>();
 
             clients.Clear();
 
             // Add the owner to the clients list.
             if (owner is not null)
+            {
                 clients.Add(owner);
+
+                Messages.Add(new ChatMessage(ChatMessageType.RoomCreated, owner.Nickname));
+
+                // Append current topic message.
+                if (!string.IsNullOrEmpty(topic))
+                    Messages.Add(new ChatMessage(ChatMessageType.RoomTopicSet, owner.Nickname, topic));
+
+                // Append owner join message
+                Messages.Add(new ChatMessage(ChatMessageType.UserJoinRoom, owner.Nickname));
+            }
         }
     }
 }

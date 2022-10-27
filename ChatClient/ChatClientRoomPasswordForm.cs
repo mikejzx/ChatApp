@@ -27,9 +27,9 @@ namespace Mikejzx.ChatClient
 
             m_Client.OnRoomPasswordResponse += () => { btnOk.Enabled = true; };
 
-            m_Client.OnRoomPasswordMismatch += () =>
+            m_Client.OnRoomPasswordError += (string message) =>
             {
-                MessageBox.Show("The password is incorrect.", "Error", 
+                MessageBox.Show(message, "Error", 
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
 

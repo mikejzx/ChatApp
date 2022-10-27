@@ -120,6 +120,12 @@ namespace Mikejzx.ChatServer
             if (room.isEncrypted)
                 iv = packet.ReadString();
 
+            // Write the message to the message history.
+            room.Messages.Add(new ChatMessage(ChatMessageType.UserMessage,
+                                              m_Client.Nickname,
+                                              msg,
+                                              iv));
+
             // Send the message back to everyone in the room
             using (Packet packet2 = new Packet(PacketType.ServerRoomMessageReceived))
             {
@@ -283,12 +289,13 @@ namespace Mikejzx.ChatServer
             }
         }
 
-        private void DontAuthoriseClient(ChatServerClient client, ChatRoom room)
+        private void DontAuthoriseClient(ChatServerClient client, ChatRoom room, PacketErrorCode errorCode)
         {
             // Inform the client that they are not authorised.
             using (Packet packet = new Packet(PacketType.ServerClientEncryptedRoomAuthoriseFail))
             {
                 packet.Write(room.name);
+                packet.Write((int)errorCode);
 
                 lock (client.sendSync)
                 {
@@ -333,7 +340,7 @@ namespace Mikejzx.ChatServer
             {
                 Console.WriteLine($"'{m_Client}' attempted to {authStr} "+
                                   $"'{nickname}' to room '{roomName}' which they do not own.");
-                DontAuthoriseClient(client, room);
+                DontAuthoriseClient(client, room, PacketErrorCode.UnknownError);
                 return false;
             }
 
@@ -342,7 +349,7 @@ namespace Mikejzx.ChatServer
             {
                 Console.WriteLine($"'{m_Client}' attempted to {authStr} " +
                                   $"'{nickname}' to non-encrypted room '{roomName}'");
-                DontAuthoriseClient(client, room);
+                DontAuthoriseClient(client, room, PacketErrorCode.UnknownError);
                 return false;
             }
 
@@ -387,16 +394,19 @@ namespace Mikejzx.ChatServer
         {
             string roomName = packet.ReadString();
             string nickname = packet.ReadString();
+            int errorCode = packet.ReadInt32();
 
             // Perform checks
             ChatServerClient? client;
             ChatRoom? room;
             if (!EncryptedRoomAuthoriseChecks(roomName, nickname, out client, out room, false) ||
                 room is null || client is null)
+            {
                 return;
+            }
 
             // Inform the client that they are not authorised.
-            DontAuthoriseClient(client, room);
+            DontAuthoriseClient(client, room, (PacketErrorCode)errorCode);
         }
     }
 }

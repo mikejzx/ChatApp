@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Mikejzx.ChatShared;
 
 namespace Mikejzx.ChatClient
 {
@@ -119,13 +115,19 @@ namespace Mikejzx.ChatClient
         // Returns true if this is a direct message channel with the given name.
         public abstract bool IsDirectChannel(string directName);
 
-        // Add message to the channel's message history
-        public ChatMessage AddMessage(ChatMessageType type, string sender, string message="")
+        // Construct and add message to the channel's message history
+        public ChatMessage AddMessage(ChatMessageType type, string author, string message="")
         {
             // Add the message
-            ChatMessage msg = new ChatMessage(type, sender, message);
-            messages.Add(msg);
-            return msg;
+            ChatMessage msg = new ChatMessage(type, author, message);
+            return AddMessage(msg);
+        }
+
+        // Add message to the channel's message history
+        public ChatMessage AddMessage(ChatMessage message)
+        {
+            messages.Add(message);
+            return message;
         }
 
         public bool ContainsRecipient(string recipient)

@@ -16,10 +16,13 @@ namespace Mikejzx.ChatClient
         Waiting,
 
         // Password was incorrect.
-        Failed,
+        Incorrect,
 
         // Password was correct.
         Successful,
+
+        // Unknown error occurred.
+        UnknownError,
     };
 
     public class ChatClient
@@ -135,14 +138,9 @@ namespace Mikejzx.ChatClient
         public Action? OnChannelListUpdate;
         public Action? OnChannelChanged;
         public Func<ChatChannel, ChatMessage, bool>? OnMessageReceived;
+        public Action<ChatRoomChannel>? OnRoomMessageListReceived;
         public Action<ChatRecipient>? OnClientLeave;
         public Action<ChatRecipient>? OnClientJoin;
-        public Action<ChatRecipient, ChatMessage>? OnClientLeaveCurrentChannel;
-        public Action<ChatRecipient, ChatMessage>? OnClientJoinCurrentChannel;
-        public Action<ChatRecipient>? OnClientLeaveRoom;
-        public Action<ChatRecipient>? OnClientJoinRoom;
-        public Action<ChatRecipient, ChatMessage>? OnClientLeaveCurrentRoom;
-        public Action<ChatRecipient, ChatMessage>? OnClientJoinCurrentRoom;
         public Func<X509Certificate, string, bool>? OnCertificateChanged;
         public Func<X509Certificate, bool>? OnCertificateFirstTime;
         public Action? OnCertificateValidationFailed;
@@ -152,13 +150,39 @@ namespace Mikejzx.ChatClient
         public Func<string?>? OnRoomPasswordRequested;
         public Action? OnRoomPasswordPending;
         public Action? OnRoomPasswordResponse;
-        public Action? OnRoomPasswordMismatch;
+        public Action<string>? OnRoomPasswordError;
         public Action? OnRoomPasswordCorrect;
 
         private bool m_InServer = false;
-        public bool InServer { get => m_InServer; set => m_InServer = value; }
+        public bool InServer 
+        {
+            get
+            {
+                lock(threadStopSync)
+                    return m_InServer;
+            }
+            set
+            {
+                lock(threadStopSync)
+                    m_InServer = value;
+            }
+        }
 
         private bool m_StopThread = false;
+        private bool StopThread 
+        {
+            get
+            {
+                lock(threadStopSync)
+                    return m_StopThread;
+            }
+            set
+            {
+                lock(threadStopSync)
+                    m_StopThread = value;
+            }
+        }
+
         private Thread? m_Thread;
 
         private Form? m_Form = null;
@@ -198,15 +222,14 @@ namespace Mikejzx.ChatClient
             m_Form = null;
             Nickname = nickname;
             Port = port;
-            InServer = false;
             m_Channel = null;
 
             m_PacketHandler = new ChatClientPacketHandler(this);
 
-            lock(threadStopSync)
-                m_StopThread = false;
+            StopThread = false;
+            InServer = false;
 
-            lock (passwordAwaitSync)
+            lock(passwordAwaitSync)
                 passwordAwait = ChatClientPasswordAwaitState.None;
         }
 
@@ -474,13 +497,21 @@ namespace Mikejzx.ChatClient
                     switch (passwordAwait)
                     {
                     // Password was incorrect
-                    case ChatClientPasswordAwaitState.Failed:
-                        // Set the key in the keychain.
+                    case ChatClientPasswordAwaitState.Incorrect:
+                        // Clear the key in the keychain.
                         if (RoomKeychain.ContainsKey(room.roomName))
                             RoomKeychain[room.roomName] = null;
 
-                        Invoke(OnRoomPasswordMismatch);
+                        Invoke(OnRoomPasswordError, "The password is incorrect.");
+                        break;
 
+                    // Unknown error occurred was incorrect
+                    case ChatClientPasswordAwaitState.UnknownError:
+                        // Clear the key in the keychain.
+                        if (RoomKeychain.ContainsKey(room.roomName))
+                            RoomKeychain[room.roomName] = null;
+
+                        Invoke(OnRoomPasswordError, "An internal error occurred while validating the password.");
                         break;
 
                     // Password was correct
@@ -544,8 +575,7 @@ namespace Mikejzx.ChatClient
 
             if (m_Thread is not null)
             {
-                lock(threadStopSync)
-                    m_StopThread = true;
+                StopThread = true;
 
                 //m_Thread.Join();
             }
@@ -555,7 +585,10 @@ namespace Mikejzx.ChatClient
 
         public void Disconnect()
         {
-            // Send disconnetion message.
+            InServer = false;
+            StopThread = true;
+
+            // Send disconnection message.
             if (m_Writer is not null)
             {
                 using (Packet packet = new Packet(PacketType.ClientDisconnect))
@@ -565,10 +598,6 @@ namespace Mikejzx.ChatClient
                 }
             }
 
-            // Clear the clients and channels (to clear message history on logout).
-            m_Clients.Clear();
-            m_Channels.Clear();
-
             Cleanup();
         }
 
@@ -577,8 +606,7 @@ namespace Mikejzx.ChatClient
         // Establish connection to host.
         public void Connect()
         {
-            lock(threadStopSync)
-                m_StopThread = false;
+            StopThread = false;
 
             // Start the worker thread.
             m_Thread = new Thread(new ThreadStart(Run));
@@ -746,6 +774,13 @@ namespace Mikejzx.ChatClient
             m_Writer = new BinaryWriter(m_Stream, Encoding.UTF8);
             m_Reader = new BinaryReader(m_Stream, Encoding.UTF8);
 
+            // Clear current state to avoid any breakages (as server is going
+            // to respond with the client list, message list, etc.).
+            m_Clients.Clear();
+            m_Channels.Clear();
+            m_OwnedRooms.Clear();
+            m_RoomKeychain.Clear();
+
             // Write the hello packet.
             using (Packet packet = new Packet(PacketType.ClientHello))
             {
@@ -758,11 +793,8 @@ namespace Mikejzx.ChatClient
 
             while (true)
             {
-                lock (threadStopSync)
-                {
-                    if (m_StopThread)
-                        break;
-                }
+                if (StopThread)
+                    break;
 
                 try
                 {

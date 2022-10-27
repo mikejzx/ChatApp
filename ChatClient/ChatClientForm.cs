@@ -1,13 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Security.Cryptography.X509Certificates;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+﻿using System.Security.Cryptography.X509Certificates;
+using Mikejzx.ChatShared;
 
 namespace Mikejzx.ChatClient
 {
@@ -62,8 +54,6 @@ namespace Mikejzx.ChatClient
 
             m_Client.OnChannelChanged += () =>
             {
-                bool shouldScroll;
-
                 if (m_Client.Channel is null)
                 {
                     lblHeading.Text = "";
@@ -71,12 +61,9 @@ namespace Mikejzx.ChatClient
                     txtCompose.Enabled = false;
                     btnSend.Enabled = false;
                     txtMessages.Text = "";
-                    shouldScroll = true;
                 }
                 else
                 {
-                    shouldScroll = txtMessages.IsAtMaxScroll();
-
                     // Reset unread count.
                     m_Client.Channel.unreadMessages = 0;
 
@@ -112,14 +99,12 @@ namespace Mikejzx.ChatClient
                     txtCompose.Focus();
                 }
 
-                if (shouldScroll)
-                    txtMessages.ScrollToBottom();
+                txtMessages.ScrollToBottom();
             };
 
             m_Client.OnMessageReceived += (ChatChannel channel, ChatMessage msg) => 
             {
-                // Append message to the messages list (if we are in the user's
-                // direct message channel).
+                // Append message to the messages list (if we are in this channel).
                 if (m_Client.Channel == channel)
                 {
                     bool shouldScroll = txtMessages.IsAtMaxScroll();
@@ -135,15 +120,18 @@ namespace Mikejzx.ChatClient
                 return false;
             };
 
-            m_Client.OnClientJoinCurrentChannel += (ChatRecipient recipient, ChatMessage msg) =>
+            m_Client.OnRoomMessageListReceived += (ChatRoomChannel channel) =>
             {
-                // Show message to indicate client joining the server.
-                bool shouldScroll = txtMessages.IsAtMaxScroll();
+                // Append message to the messages list (if we are in the room)
+                if (m_Client.Channel == channel)
+                {
+                    txtMessages.Text = string.Empty;
 
-                txtMessages.Text += msg.ToString() + "\n";
+                    foreach (ChatMessage msg in channel.messages)
+                        txtMessages.Text += msg.ToString() + "\n";
 
-                if (shouldScroll)
                     txtMessages.ScrollToBottom();
+                }
             };
 
             m_Client.OnClientJoin += (ChatRecipient recipient) =>
@@ -152,43 +140,10 @@ namespace Mikejzx.ChatClient
                 RefreshChannelsList();
             };
 
-            m_Client.OnClientLeaveCurrentChannel += (ChatRecipient recipient, ChatMessage msg) =>
-            {
-                // Show message to indicate client leaving the server.
-                bool shouldScroll = txtMessages.IsAtMaxScroll();
-
-                txtMessages.Text += msg.ToString() + "\n";
-
-                if (shouldScroll)
-                    txtMessages.ScrollToBottom();
-            };
-
             m_Client.OnClientLeave += (ChatRecipient recipient) =>
             {
                 // Refresh the channel list to update offline statuses.
                 RefreshChannelsList();
-            };
-
-            m_Client.OnClientJoinCurrentRoom += (ChatRecipient recipient, ChatMessage msg) =>
-            {
-                // Show message to indicate client joining the room.
-                bool shouldScroll = txtMessages.IsAtMaxScroll();
-
-                txtMessages.Text += msg.ToString() + "\n";
-
-                if (shouldScroll)
-                    txtMessages.ScrollToBottom();
-            };
-
-            m_Client.OnClientLeaveCurrentRoom += (ChatRecipient recipient, ChatMessage msg) =>
-            {
-                // Show message to indicate client leaving the room.
-                bool shouldScroll = txtMessages.IsAtMaxScroll();
-
-                txtMessages.Text += msg.ToString() + "\n";
-
-                if (shouldScroll)
-                    txtMessages.ScrollToBottom();
             };
 
             m_Client.OnCertificateValidationFailed += () =>
@@ -271,7 +226,7 @@ namespace Mikejzx.ChatClient
                 page.Icon = TaskDialogIcon.ShieldErrorRedBar;
                 page.Text = "Do you want trust the new certificate the server has presented?\n\n" +
                             "This could be due to a man-in-the-middle attack, or more likely, " + 
-                            "the server may have updated their certificate.\n\n" +
+                            "the certificate on the server may have been updated by the server's administrators.\n\n" +
                             "Please review the certificate details below and " +
                             "determine whether you wish to trust the new certificate or not.\n\n";
                 page.Buttons = new TaskDialogButtonCollection() { yesButton, noButton };
@@ -280,9 +235,7 @@ namespace Mikejzx.ChatClient
                 if (Program.loginForm is null)
                     return false;
 
-                TaskDialogButton result = TaskDialog.ShowDialog(Program.loginForm, 
-                                                                page, 
-                                                                TaskDialogStartupLocation.CenterScreen);
+                TaskDialogButton result = TaskDialog.ShowDialog(Program.loginForm, page);
 
                 if (result.Tag is null)
                     return false;
@@ -466,6 +419,33 @@ namespace Mikejzx.ChatClient
                         return;
 
                     string roomName = ((ToolStripButton)sender).Text;
+
+                    // Create the task dialog
+
+                    TaskDialogButton yesButton = new TaskDialogButton();
+                    yesButton.Tag = DialogResult.Yes;
+                    yesButton.Text = "Yes";
+
+                    TaskDialogButton noButton = new TaskDialogButton();
+                    noButton.Tag = DialogResult.No;
+                    noButton.Text = "No";
+
+                    TaskDialogPage page = new TaskDialogPage();
+                    page.Caption = "Confirmation";
+                    page.DefaultButton = noButton;
+                    page.Heading = "Are you sure you want to delete this room?";
+                    page.Icon = TaskDialogIcon.Warning;
+                    page.Text = "Clicking 'Yes' will remove your room with name '" + roomName + "'.\n\n" +
+                                "All of the room's message history will be lost.\n\n" +
+                                "This action cannot be undone.";
+                    page.Buttons = new TaskDialogButtonCollection() { yesButton, noButton };
+                    page.AllowCancel = false;
+
+                    TaskDialogButton result = TaskDialog.ShowDialog(this, page);
+
+                    // Check dialog result
+                    if (result.Tag is null || (DialogResult)result.Tag != DialogResult.Yes)
+                        return;
 
                     // Delete the room with this name
                     m_Client.DeleteRoom(roomName);
