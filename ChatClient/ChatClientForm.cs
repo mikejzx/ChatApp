@@ -102,7 +102,7 @@ namespace Mikejzx.ChatClient
                 txtMessages.ScrollToBottom();
             };
 
-            m_Client.OnMessageReceived += (ChatChannel channel, ChatMessage msg) => 
+            m_Client.OnMessageReceived += (ChatChannel channel, ChatMessage msg) =>
             {
                 // Append message to the messages list (if we are in this channel).
                 if (m_Client.Channel == channel)
@@ -225,7 +225,7 @@ namespace Mikejzx.ChatClient
                 page.Heading = "Server sent an unknown certificate";
                 page.Icon = TaskDialogIcon.ShieldErrorRedBar;
                 page.Text = "Do you want trust the new certificate the server has presented?\n\n" +
-                            "This could be due to a man-in-the-middle attack, or more likely, " + 
+                            "This could be due to a man-in-the-middle attack, or more likely, " +
                             "the certificate on the server may have been updated by the server's administrators.\n\n" +
                             "Please review the certificate details below and " +
                             "determine whether you wish to trust the new certificate or not.\n\n";
@@ -261,7 +261,7 @@ namespace Mikejzx.ChatClient
             txtCompose.Focus();
         }
 
-        private void NoConnection(bool notConnected, bool inform=false)
+        private void NoConnection(bool notConnected, bool inform = false)
         {
             lblServer.Text = $"Server: {m_Client.Hostname}:{m_Client.Port}";
 
@@ -271,7 +271,7 @@ namespace Mikejzx.ChatClient
             if (notConnected && inform)
             {
                 MessageBox.Show("Lost connection to the server.  " +
-                                "Click 'Reconnect' to attempt to reconnect.", 
+                                "Click 'Reconnect' to attempt to reconnect.",
                                 "Connection lost.",
                                 MessageBoxButtons.OK,
                                 MessageBoxIcon.Error);
@@ -455,8 +455,84 @@ namespace Mikejzx.ChatClient
             }
         }
 
-        private void deleteRoomToolStripMenuItem_DropDownOpening(object sender, EventArgs e)
+        private void ChatClientForm_Resize(object sender, EventArgs e)
         {
+            // Update scroll button.
+            if (txtMessages.IsAtMaxScroll())
+            {
+                btnScrollToBottom.Hide();
+                btnScrollToBottom.Enabled = false;
+            }
+            else
+            {
+                btnScrollToBottom.Show();
+                btnScrollToBottom.Enabled = true;
+            }
+        }
+
+        // Gets index of last word in a string.
+        //
+        // Behaviour is modelled after Ctrl-W backspacing that is common in
+        // *nix terminal applications (Vim, Bash, etc.).
+        private int StringLastWordIndex(string s, int caret)
+        {
+            if (caret < 1)
+                return -1;
+
+            // Move over trailing whitespace
+            int i;
+            for (i = caret - 1; i > 0; --i)
+            {
+                char c = s[i];
+
+                if (!char.IsWhiteSpace(c))
+                    break;
+            }
+
+            // Find end of word, delimited by whitespace or punctuation.
+            char lastChar = s[i];
+            for (; i > 0; --i)
+            {
+                if (char.IsPunctuation(lastChar) && !char.IsPunctuation(s[i - 1]))
+                    return i;
+
+                if (!char.IsPunctuation(lastChar) && char.IsPunctuation(s[i - 1]))
+                    return i;
+
+                if (char.IsWhiteSpace(s[i - 1]))
+                    return i;
+            }
+
+            return 0;
+        }
+
+        private void txtCompose_KeyDown(object sender, KeyEventArgs e)
+        {
+            // Handle Shift-Backspace or Ctrl-W to delete last word
+            if (txtCompose.SelectionLength == 0 &&
+                ((e.Shift && e.KeyCode == Keys.Back) ||
+                (e.Control && e.KeyCode == Keys.W)))
+            {
+                int index = StringLastWordIndex(txtCompose.Text, txtCompose.SelectionStart);
+
+                if (index > -1)
+                {
+                    string oldText = txtCompose.Text;
+                    string lside = oldText.Substring(0, index);
+                    string rside = string.Empty;
+
+                    if (txtCompose.SelectionStart < txtCompose.Text.Length)
+                    {
+                        int start = txtCompose.SelectionStart;
+                        int end = txtCompose.TextLength;
+                        int length = end - start;
+                        rside = oldText.Substring(start, length);
+                    }
+
+                    txtCompose.Text = lside + rside;
+                    txtCompose.SelectionStart = index;
+                }
+            }
         }
     }
 }
