@@ -29,6 +29,7 @@ namespace Mikejzx.ChatClient
     {
         // The nickname of the client.
         private string m_Nickname = string.Empty;
+
         public string Nickname
         {
             get => m_Nickname;
@@ -42,10 +43,12 @@ namespace Mikejzx.ChatClient
 
         // The hostname the client is connecting to.
         private string m_Hostname = string.Empty;
+
         public string Hostname { get => m_Hostname; set => m_Hostname = value; }
 
         // Port of server to connect to.
         private int m_Port;
+
         public int Port { get => m_Port; set => m_Port = value; }
 
         private TcpClient? m_Tcp;
@@ -53,7 +56,7 @@ namespace Mikejzx.ChatClient
         private BinaryReader? m_Reader;
         private BinaryWriter? m_Writer;
 
-        public BinaryReader Reader 
+        public BinaryReader Reader
         {
             get
             {
@@ -64,7 +67,7 @@ namespace Mikejzx.ChatClient
             }
         }
 
-        public BinaryWriter Writer 
+        public BinaryWriter Writer
         {
             get
             {
@@ -75,18 +78,26 @@ namespace Mikejzx.ChatClient
             }
         }
 
+        // Handler for packets the server sends us.
         private ChatClientPacketHandler m_PacketHandler;
+
+        // Listener for multicast packets on the local network, which servers
+        // on the local network will send to display their presence.
+        public ChatClientMulticastListener multicastListener;
 
         // List of message channels.
         private List<ChatChannel> m_Channels = new List<ChatChannel>();
+
         public List<ChatChannel> Channels { get => m_Channels; }
 
         // List of rooms that we created.
         private List<ChatRoomChannel> m_OwnedRooms = new List<ChatRoomChannel>();
+
         public List<ChatRoomChannel> OwnedRooms { get => m_OwnedRooms; }
 
         // List of keys used for encrypted rooms.
         private Dictionary<string, byte[]?> m_RoomKeychain = new Dictionary<string, byte[]?>();
+
         public Dictionary<string, byte[]?> RoomKeychain { get => m_RoomKeychain; }
 
         // Timeout in seconds to wait for password response.
@@ -94,12 +105,14 @@ namespace Mikejzx.ChatClient
 
         // List of clients that are connected to the server.
         private Dictionary<string, ChatRecipient> m_Clients = new Dictionary<string, ChatRecipient>();
+
         public Dictionary<string, ChatRecipient> Clients { get => m_Clients; }
 
         // Channel we are chatting in.
         private ChatChannel? m_Channel = null;
+
         public ChatChannel? Channel
-        { 
+        {
             get => m_Channel;
             set
             {
@@ -114,7 +127,7 @@ namespace Mikejzx.ChatClient
 
                 // If we have not joined the room, attempt to join it.
                 if (value is not null &&
-                    !value.IsDirect && 
+                    !value.IsDirect &&
                     !((ChatRoomChannel)value).isJoined &&
                     !JoinRoom((ChatRoomChannel)value))
                 {
@@ -132,6 +145,7 @@ namespace Mikejzx.ChatClient
 
         // Callbacks
         public Action? OnConnectionSuccess;
+
         public Action? OnConnectionLost;
         public Action<string>? OnLoginNameChanged;
         public Action<string>? OnError;
@@ -154,31 +168,33 @@ namespace Mikejzx.ChatClient
         public Action? OnRoomPasswordCorrect;
 
         private bool m_InServer = false;
-        public bool InServer 
+
+        public bool InServer
         {
             get
             {
-                lock(threadStopSync)
+                lock (threadStopSync)
                     return m_InServer;
             }
             set
             {
-                lock(threadStopSync)
+                lock (threadStopSync)
                     m_InServer = value;
             }
         }
 
         private bool m_StopThread = false;
-        private bool StopThread 
+
+        private bool StopThread
         {
             get
             {
-                lock(threadStopSync)
+                lock (threadStopSync)
                     return m_StopThread;
             }
             set
             {
-                lock(threadStopSync)
+                lock (threadStopSync)
                     m_StopThread = value;
             }
         }
@@ -186,7 +202,8 @@ namespace Mikejzx.ChatClient
         private Thread? m_Thread;
 
         private Form? m_Form = null;
-        public Form Form 
+
+        public Form Form
         {
             get
             {
@@ -195,7 +212,7 @@ namespace Mikejzx.ChatClient
 
                 return m_Form;
             }
-            set => m_Form = value; 
+            set => m_Form = value;
         }
 
         // Indicates current password awaiting state (e.g. waiting for validation).
@@ -203,6 +220,7 @@ namespace Mikejzx.ChatClient
 
         // Sync objects
         public readonly object threadStopSync = new object();
+
         public readonly object passwordAwaitSync = new object();
 
         // Convert client to a string (i.e. get our nickname)
@@ -226,10 +244,12 @@ namespace Mikejzx.ChatClient
 
             m_PacketHandler = new ChatClientPacketHandler(this);
 
+            multicastListener = new ChatClientMulticastListener();
+
             StopThread = false;
             InServer = false;
 
-            lock(passwordAwaitSync)
+            lock (passwordAwaitSync)
                 passwordAwait = ChatClientPasswordAwaitState.None;
         }
 
@@ -250,7 +270,7 @@ namespace Mikejzx.ChatClient
             if (Channel.IsDirect)
             {
                 ChatDirectChannel dc = (ChatDirectChannel)Channel;
-                
+
                 // Send direct message
                 using (Packet packet = new Packet(PacketType.ClientDirectMessage))
                 {
@@ -338,7 +358,7 @@ namespace Mikejzx.ChatClient
         }
 
         // Create a chat room.
-        public void CreateRoom(string roomName, string roomTopic, bool roomEncrypted, string roomPassword="")
+        public void CreateRoom(string roomName, string roomTopic, bool roomEncrypted, string roomPassword = "")
         {
             // If room name is already in use.
             foreach (ChatChannel channel in Channels)
@@ -470,7 +490,7 @@ namespace Mikejzx.ChatClient
 
                 // Block until we get a response from the server.
                 DateTime startTime = DateTime.Now;
-                for (;;)
+                for (; ; )
                 {
                     lock (passwordAwaitSync)
                     {
@@ -492,35 +512,35 @@ namespace Mikejzx.ChatClient
 
                 Invoke(OnRoomPasswordResponse);
 
-                lock(passwordAwaitSync)
+                lock (passwordAwaitSync)
                 {
                     switch (passwordAwait)
                     {
-                    // Password was incorrect
-                    case ChatClientPasswordAwaitState.Incorrect:
-                        // Clear the key in the keychain.
-                        if (RoomKeychain.ContainsKey(room.roomName))
-                            RoomKeychain[room.roomName] = null;
+                        // Password was incorrect
+                        case ChatClientPasswordAwaitState.Incorrect:
+                            // Clear the key in the keychain.
+                            if (RoomKeychain.ContainsKey(room.roomName))
+                                RoomKeychain[room.roomName] = null;
 
-                        Invoke(OnRoomPasswordError, "The password is incorrect.");
-                        break;
+                            Invoke(OnRoomPasswordError, "The password is incorrect.");
+                            break;
 
-                    // Unknown error occurred was incorrect
-                    case ChatClientPasswordAwaitState.UnknownError:
-                        // Clear the key in the keychain.
-                        if (RoomKeychain.ContainsKey(room.roomName))
-                            RoomKeychain[room.roomName] = null;
+                        // Unknown error occurred was incorrect
+                        case ChatClientPasswordAwaitState.UnknownError:
+                            // Clear the key in the keychain.
+                            if (RoomKeychain.ContainsKey(room.roomName))
+                                RoomKeychain[room.roomName] = null;
 
-                        Invoke(OnRoomPasswordError, "An internal error occurred while validating the password.");
-                        break;
+                            Invoke(OnRoomPasswordError, "An internal error occurred while validating the password.");
+                            break;
 
-                    // Password was correct
-                    case ChatClientPasswordAwaitState.Successful:
-                        Invoke(OnRoomPasswordCorrect);
-                        return true;
+                        // Password was correct
+                        case ChatClientPasswordAwaitState.Successful:
+                            Invoke(OnRoomPasswordCorrect);
+                            return true;
 
-                    // Time out
-                    default: break;
+                        // Time out
+                        default: break;
                     }
                 }
             }
@@ -579,6 +599,8 @@ namespace Mikejzx.ChatClient
 
                 //m_Thread.Join();
             }
+
+            multicastListener.Stop();
 
             InServer = false;
         }
@@ -696,7 +718,7 @@ namespace Mikejzx.ChatClient
                 }
 
                 // Write the new file.
-                using(StreamWriter writer = new StreamWriter(file))
+                using (StreamWriter writer = new StreamWriter(file))
                 {
                     foreach (KeyValuePair<string, string> certificate in trustedCertificates)
                     {
@@ -762,7 +784,7 @@ namespace Mikejzx.ChatClient
 
                 return;
             }
-            catch(ObjectDisposedException)
+            catch (ObjectDisposedException)
             {
                 // Due to user closing out of application.
                 return;

@@ -10,6 +10,9 @@ namespace Mikejzx.ChatServer
 {
     public class ChatServer
     {
+        public IPAddress hostAddress;
+        public string hostAddressString;
+
         // Server SSL certificate.
         private X509Certificate2? m_Certificate;
 
@@ -18,6 +21,10 @@ namespace Mikejzx.ChatServer
 
         // List of rooms in the server.
         private Dictionary<string, ChatRoom> m_Rooms = new Dictionary<string, ChatRoom>();
+
+        // Server multicaster, this broadcasts the server's presence on the
+        // local network for users that'd like to chat over LAN.
+        private ChatServerMulticaster? m_Multicaster = null;
 
         // Sync objects
         private readonly object clientSync = new object();
@@ -112,6 +119,9 @@ namespace Mikejzx.ChatServer
         {
             Console.WriteLine("Shutting down the server ...");
 
+            if (m_Multicaster is not null)
+                m_Multicaster.Stop();
+
             // Cleanup client connections
             lock (clientSync)
             {
@@ -125,6 +135,31 @@ namespace Mikejzx.ChatServer
         public void Run(string certificatePath)
         {
             Console.WriteLine("Starting server ...");
+
+            // Get the host IP address.
+            IPAddress? hostIp = null;
+            foreach (IPAddress ip in Dns.GetHostAddresses(Dns.GetHostName()))
+            {
+                if (hostIp is null)
+                {
+                    hostIp = ip;
+                }
+                else if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    // Prioritise IPv4 address.
+                    hostIp = ip;
+                    break;
+                }
+            }
+
+            if (hostIp is null)
+            {
+                Console.WriteLine("Error: failed to get a host address");
+                return;
+            }
+
+            hostAddress = hostIp;
+            hostAddressString = hostAddress.ToString();
 
             Console.WriteLine($"Using certificate '{certificatePath}'");
 
@@ -159,7 +194,10 @@ namespace Mikejzx.ChatServer
                 return;
             }
 
-            Console.WriteLine($"Server is listening on 127.0.0.1:{ChatConstants.ServerPort}");
+            Console.WriteLine($"Server is listening on {hostAddressString}:{ChatConstants.ServerPort}");
+
+            // Start the multicaster socket.
+            m_Multicaster = new ChatServerMulticaster(this);
 
             // Listen for incoming connections.
             while (true)

@@ -215,10 +215,12 @@
             // 
             // lblServer
             // 
-            this.lblServer.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
+            this.lblServer.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblServer.AutoEllipsis = true;
             this.lblServer.Location = new System.Drawing.Point(3, 238);
             this.lblServer.Name = "lblServer";
-            this.lblServer.Size = new System.Drawing.Size(135, 25);
+            this.lblServer.Size = new System.Drawing.Size(133, 25);
             this.lblServer.TabIndex = 12;
             this.lblServer.Text = "Server: ";
             this.lblServer.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
