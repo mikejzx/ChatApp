@@ -121,36 +121,12 @@ namespace Mikejzx.ChatServer
                 iv = packet.ReadString();
 
             // Write the message to the message history.
-            room.Messages.Add(new ChatMessage(ChatMessageType.UserMessage,
-                                              m_Client.Nickname,
-                                              msg,
-                                              iv));
-
-            // Send the message back to everyone in the room
-            using (Packet packet2 = new Packet(PacketType.ServerRoomMessageReceived))
-            {
-                packet2.Write(m_Client.ToString());
-                packet2.Write(roomName);
-                packet2.Write(msg);
-
-                if (iv is not null)
-                    packet2.Write(iv);
-
-                // Send the message to all clients who are in the room.
-                foreach (ChatServerClient client in room.clients)
-                {
-                    lock (client.sendSync)
-                    {
-                        packet2.WriteToStream(client.Writer);
-                        client.Writer.Flush();
-                    }
-                }
-            }
+            room.AddMessage(new ChatMessage(ChatMessageType.UserMessage, m_Client.Nickname, msg, iv));
         }
 
         // Client is creating a room
         private void ClientRoomCreate(Packet packet)
-        { 
+        {
             string roomName = packet.ReadString();
             string roomTopic = packet.ReadString();
             bool roomEncrypted = packet.ReadBool();
@@ -306,8 +282,8 @@ namespace Mikejzx.ChatServer
         }
 
         // Common checks for authorisation and non-authorisation.
-        private bool EncryptedRoomAuthoriseChecks(string roomName, string nickname, 
-                                                  out ChatServerClient? client, out ChatRoom? room, 
+        private bool EncryptedRoomAuthoriseChecks(string roomName, string nickname,
+                                                  out ChatServerClient? client, out ChatRoom? room,
                                                   bool noAuth)
         {
             string authStr = noAuth ? "NOT authorise" : "authorise";
@@ -321,7 +297,7 @@ namespace Mikejzx.ChatServer
             client = m_Server.GetClient(nickname);
             if (client is null)
             {
-                Console.WriteLine($"'{m_Client}' attempted to {authStr} " + 
+                Console.WriteLine($"'{m_Client}' attempted to {authStr} " +
                                   $"unknown user '{nickname}' to room '{roomName}'");
                 return false;
             }
@@ -338,7 +314,7 @@ namespace Mikejzx.ChatServer
             // User must own the room to authorise
             if (room.owner != m_Client)
             {
-                Console.WriteLine($"'{m_Client}' attempted to {authStr} "+
+                Console.WriteLine($"'{m_Client}' attempted to {authStr} " +
                                   $"'{nickname}' to room '{roomName}' which they do not own.");
                 DontAuthoriseClient(client, room, PacketErrorCode.UnknownError);
                 return false;

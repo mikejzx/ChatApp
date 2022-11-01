@@ -78,7 +78,7 @@ namespace Mikejzx.ChatClient
 
         // Server welcomes us into the server.
         private void ServerWelcome(Packet packet)
-        { 
+        {
             m_Client.InServer = true;
 
             Invoke(m_Client.OnConnectionSuccess);
@@ -86,7 +86,7 @@ namespace Mikejzx.ChatClient
 
         // Server sends us a general error message.
         private void ServerError(Packet packet)
-        { 
+        {
             PacketErrorCode code = (PacketErrorCode)packet.ReadUInt32();
             string msg = packet.ReadString();
 
@@ -114,7 +114,6 @@ namespace Mikejzx.ChatClient
                     continue;
 
                 // Check if we already have the client.
-                ChatChannel? channel = null;
                 if (!m_Client.Clients.ContainsKey(nickname))
                 {
                     // Add the client.
@@ -122,20 +121,14 @@ namespace Mikejzx.ChatClient
                     m_Client.Clients.Add(nickname, addedRecipient);
 
                     // Create the direct channel for the new recipient.
-                    channel = new ChatDirectChannel(addedRecipient);
+                    ChatDirectChannel channel = new ChatDirectChannel(addedRecipient);
                     m_Client.Channels.Add(channel);
                 }
                 else
                 {
                     // Set them as joined.
                     m_Client.Clients[nickname].isJoined = true;
-
-                    channel = FindDirectMessageChannel(nickname);
                 }
-
-                // Add our server join message.
-                if (channel is not null)
-                    channel.AddMessage(ChatMessageType.UserJoin, m_Client.ToString());
             }
 
             // Update channel list.
@@ -244,6 +237,76 @@ namespace Mikejzx.ChatClient
             }
         }
 
+        // Attempt to decrypt a message.  Shows error to user on fail, and sets
+        // message to indicate that it was not decrypted correctly.
+        private string TryDecryptRoomMessage(ChatRoomChannel room, string iv, string message)
+        {
+            string finalMessage;
+
+            if (string.IsNullOrEmpty(iv))
+            {
+                finalMessage = "!! failed to decrypt (missing IV) !!";
+            }
+            else
+            {
+                // Can't decrypt if keychain is missing the key.
+                if (!m_Client.RoomKeychain.ContainsKey(room.roomName))
+                {
+                    ShowError($"No key for room '{room.roomName}'");
+                    finalMessage = "!! failed to decrypt (missing key) !!";
+                }
+                else
+                {
+                    byte[]? roomKey = m_Client.RoomKeychain[room.roomName];
+                    if (roomKey is null)
+                    {
+                        ShowError($"No key for room '{room.roomName}'");
+                        finalMessage = "!! failed to decrypt (missing key) !!";
+                    }
+                    else
+                    {
+                        // Decrypt the cipher text and update the message.
+                        CryptoCipher cipher = new CryptoCipher(iv, message);
+                        finalMessage = ChatClientCrypto.DecryptMessage(cipher, roomKey, out _);
+                    }
+                }
+            }
+
+            return finalMessage;
+        }
+
+        // Read a room message from packet
+        private ChatMessage ReadRoomMessage(Packet packet, ChatRoomChannel room)
+        {
+            int messageType = packet.ReadInt32();
+            string messageAuthor = packet.ReadString();
+            string messageString = packet.ReadString();
+
+            string? finalMessage;
+
+            if (string.IsNullOrEmpty(messageString))
+            {
+                finalMessage = null;
+            }
+            else
+            {
+                if (!room.isEncrypted ||
+                    (ChatMessageType)messageType != ChatMessageType.UserMessage)
+                {
+                    finalMessage = messageString;
+                }
+                else
+                {
+                    // Decrypt the message
+                    string ivString = packet.ReadString();
+                    finalMessage = TryDecryptRoomMessage(room, messageString, ivString);
+                }
+            }
+
+            // Create the message
+            return new ChatMessage((ChatMessageType)messageType, messageAuthor, finalMessage);
+        }
+
         // Server sends us the messages of a room (e.g. on room join)
         private void ServerClientRoomMessages(Packet packet)
         {
@@ -262,57 +325,7 @@ namespace Mikejzx.ChatClient
 
             for (int i = 0; i < messageCount; ++i)
             {
-                int messageType = packet.ReadInt32();
-                string messageAuthor = packet.ReadString();
-                string messageString = packet.ReadString();
-
-                string? finalMessage = null;
-
-                if (string.IsNullOrEmpty(messageString))
-                    finalMessage = null;
-                else
-                {
-                    if (!channel.isEncrypted || 
-                        (ChatMessageType)messageType != ChatMessageType.UserMessage)
-                    { 
-                        finalMessage = messageString;
-                    }
-                    else
-                    {
-                        // Decrypt the message
-                        string ivString = packet.ReadString();
-
-                        if (string.IsNullOrEmpty(ivString))
-                        {
-                            finalMessage = "!! failed to decrypt (missing IV) !!";
-                        }
-                        else
-                        {
-                            // Can't send if keychain is missing the key.
-                            if (!m_Client.RoomKeychain.ContainsKey(channel.roomName))
-                            {
-                                ShowError($"No key for room '{channel.roomName}'");
-                                return;
-                            }
-
-                            byte[]? roomKey = m_Client.RoomKeychain[channel.roomName];
-                            if (roomKey is null)
-                            {
-                                ShowError($"No key for room '{channel.roomName}'");
-                                return;
-                            }
-
-                            // Decrypt the cipher text and update the message.
-                            CryptoCipher cipher = new CryptoCipher(ivString, messageString);
-                            finalMessage = ChatClientCrypto.DecryptMessage(cipher, roomKey, out _);
-                        }
-                    }
-                }
-
-                // Create the message
-                ChatMessage message = new ChatMessage((ChatMessageType)messageType, 
-                                                      messageAuthor,
-                                                      finalMessage);
+                ChatMessage message = ReadRoomMessage(packet, channel);
 
                 // Add this message to the local room history.
                 channel.AddMessage(message);
@@ -339,22 +352,17 @@ namespace Mikejzx.ChatClient
                 m_Client.Clients.Add(nickname, joinedRecipient);
 
                 // Create a direct channel for the user
-                ChatChannel channel = new ChatDirectChannel(joinedRecipient);
-                m_Client.Channels.Add(channel);
+                m_Client.Channels.Add(new ChatDirectChannel(joinedRecipient));
             }
             else
             {
                 m_Client.Clients[nickname].isJoined = true;
             }
 
-            // Iterate over the channels that the joining client is a
-            // part of (e.g. it's direct-message channel, and rooms).
-            foreach (ChatChannel channel in m_Client.Channels)
+            // Append join message to user's direct message channel
+            ChatDirectChannel? channel = FindDirectMessageChannel(nickname);
+            if (channel is not null)
             {
-                if (!channel.ContainsRecipient(m_Client.Clients[nickname]))
-                    continue;
-
-                // Append join message
                 ChatMessage msg = channel.AddMessage(ChatMessageType.UserJoin, nickname);
                 Invoke(m_Client.OnMessageReceived, channel, msg);
             }
@@ -385,14 +393,10 @@ namespace Mikejzx.ChatClient
             // Set client as unjoined.
             m_Client.Clients[nickname].isJoined = false;
 
-            // Append unjoin message to all channels that are relevant
-            // to the client.
-            foreach (ChatChannel channel in m_Client.Channels)
+            // Append unjoin message to user's direct message channel
+            ChatDirectChannel? channel = FindDirectMessageChannel(nickname);
+            if (channel is not null)
             {
-                if (!channel.ContainsRecipient(m_Client.Clients[nickname]))
-                    continue;
-
-                // Append leave message
                 ChatMessage msg = channel.AddMessage(ChatMessageType.UserLeave, nickname);
                 Invoke(m_Client.OnMessageReceived, channel, msg);
             }
@@ -426,16 +430,6 @@ namespace Mikejzx.ChatClient
                 // it indicates us joining a room that we just created.
                 room.isJoined = true;
 
-                // Append the create message
-                room.AddMessage(ChatMessageType.RoomCreated, nickname);
-
-                // Append current topic message.
-                if (!string.IsNullOrEmpty(room.roomTopic))
-                    room.AddMessage(ChatMessageType.RoomTopicSet, nickname, room.roomTopic);
-
-                // Append our join message
-                room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
-
                 m_Client.OwnedRooms.Add(room);
 
                 Invoke(m_Client.OnRoomCreateSuccess);
@@ -452,10 +446,6 @@ namespace Mikejzx.ChatClient
 
             // Add client to the room recipients
             room.recipients.Add(m_Client.Clients[nickname]);
-
-            // Append room join message
-            ChatMessage msg = room.AddMessage(ChatMessageType.UserJoinRoom, nickname);
-            Invoke(m_Client.OnMessageReceived, room, msg);
         }
 
         // Server tells us that a client left the room.
@@ -483,10 +473,6 @@ namespace Mikejzx.ChatClient
 
             // Remove client from the room recipients
             room.recipients.Remove(m_Client.Clients[nickname]);
-
-            // Append room leave message
-            ChatMessage msg = room.AddMessage(ChatMessageType.UserLeaveRoom, nickname);
-            Invoke(m_Client.OnMessageReceived, room, msg);
         }
 
         // Server tells us that we received a direct message
@@ -499,7 +485,7 @@ namespace Mikejzx.ChatClient
             string recipient = packet.ReadString();
 
             // Read the message
-            string message = packet.ReadString();
+            string messageString = packet.ReadString();
 
             // Determine under whose name the message should be stored.
             string channelName;
@@ -508,21 +494,22 @@ namespace Mikejzx.ChatClient
             else
                 channelName = sender;
 
-            // Append to the channel's message list.
+            // Get the direct message channel.
             ChatChannel? channel = FindDirectMessageChannel(channelName);
             if (channel is null)
-            { 
+            {
                 ShowError($"Received message on unknown DM {channelName}.");
                 return;
             }
 
-            ChatMessage addedMessage = channel.AddMessage(ChatMessageType.UserMessage, 
-                                                          sender, 
-                                                          message);
+            // Construct and append to the channel's message list.
+            ChatMessage message = new ChatMessage(ChatMessageType.UserMessage, sender, messageString);
+            channel.AddMessage(message);
 
-            if (!(bool)Invoke(m_Client.OnMessageReceived, channel, addedMessage))
+            if (!(bool)Invoke(m_Client.OnMessageReceived, channel, message))
             {
-                ++channel.unreadMessages;
+                if (message.type == ChatMessageType.UserMessage)
+                    ++channel.unreadMessages;
 
                 // Update the client list to show the unread messages.
                 Invoke(m_Client.OnChannelListUpdate);
@@ -532,54 +519,25 @@ namespace Mikejzx.ChatClient
         // Server informing us of a message sent to a room.
         private void ServerRoomMessageReceived(Packet packet)
         {
-            // Read who the message was sent from.
-            string sender = packet.ReadString();
-
-            // Read room that message was sent to.
+            // Read room name
             string roomName = packet.ReadString();
-
-            // Read the message itself.
-            string message = packet.ReadString();
-
-            // Append to the room's message list.
             ChatRoomChannel? channel = FindRoom(roomName);
             if (channel is null)
-            { 
-                ShowError($"Received message from unknown room {roomName}.");
+            {
+                ShowError($"Received message on unknown room {roomName}.");
                 return;
             }
 
-            // Decrypt the message
-            if (channel.isEncrypted)
+            // Read the message data
+            ChatMessage message = ReadRoomMessage(packet, channel);
+
+            // Add this message to the local room history.
+            channel.AddMessage(message);
+
+            if (!(bool)Invoke(m_Client.OnMessageReceived, channel, message))
             {
-                string ivString = packet.ReadString();
-
-                // Can't send if keychain is missing the key.
-                if (!m_Client.RoomKeychain.ContainsKey(channel.roomName))
-                {
-                    ShowError($"No key for room '{channel.roomName}'");
-                    return;
-                }
-
-                byte[]? roomKey = m_Client.RoomKeychain[channel.roomName];
-                if (roomKey is null)
-                {
-                    ShowError($"No key for room '{channel.roomName}'");
-                    return;
-                }
-
-                // Decrypt the cipher text and update the message.
-                CryptoCipher cipher = new CryptoCipher(ivString, message);
-                message = ChatClientCrypto.DecryptMessage(cipher, roomKey, out _);
-            }
-
-            ChatMessage addedMessage = channel.AddMessage(ChatMessageType.UserMessage, 
-                                                          sender, 
-                                                          message);
-
-            if (!(bool)Invoke(m_Client.OnMessageReceived, channel, addedMessage))
-            {
-                ++channel.unreadMessages;
+                if (message.type == ChatMessageType.UserMessage)
+                    ++channel.unreadMessages;
 
                 // Update the channel list to show the unread messages.
                 Invoke(m_Client.OnChannelListUpdate);
@@ -657,12 +615,6 @@ namespace Mikejzx.ChatClient
                 return;
             }
 
-            // We just add a message.
-            ChatMessage msg = room.AddMessage(ChatMessageType.RoomOwnerChanged, ownerName);
-
-            // Update the displayed message.
-            Invoke(m_Client.OnMessageReceived, room, msg);
-
             // If we are the owner, we add the room to our owned room list.
             if (ownerName == m_Client.ToString())
             {
@@ -697,7 +649,7 @@ namespace Mikejzx.ChatClient
             }
 
             // Ensure we have the key.
-            byte[]? roomKey = null; 
+            byte[]? roomKey = null;
             if (m_Client.RoomKeychain.ContainsKey(room.roomName))
                 roomKey = m_Client.RoomKeychain[room.roomName];
 

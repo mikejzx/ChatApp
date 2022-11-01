@@ -21,6 +21,7 @@ namespace Mikejzx.ChatServer
 
         // Sync objects
         private readonly object clientSync = new object();
+
         private readonly object roomSync = new object();
 
         public static readonly string MainRoomName = "Main Room";
@@ -39,7 +40,7 @@ namespace Mikejzx.ChatServer
         // Enumerate client list
         public void EnumerateClients(Action<ChatServerClient> action)
         {
-            lock(clientSync)
+            lock (clientSync)
             {
                 foreach (ChatServerClient client in m_Clients.Values)
                 {
@@ -73,7 +74,7 @@ namespace Mikejzx.ChatServer
         // Enumerate room list
         public void EnumerateRooms(Action<ChatRoom> action)
         {
-            lock(roomSync)
+            lock (roomSync)
             {
                 foreach (ChatRoom room in m_Rooms.Values)
                 {
@@ -85,7 +86,7 @@ namespace Mikejzx.ChatServer
         // Enumerate room list until given function returns true.
         public void EnumerateRoomsUntil(Func<ChatRoom, bool> func)
         {
-            lock(roomSync)
+            lock (roomSync)
             {
                 foreach (ChatRoom room in m_Rooms.Values)
                 {
@@ -142,7 +143,7 @@ namespace Mikejzx.ChatServer
 
             // Create the main room that all users are in by default.
             m_Rooms.Clear();
-            m_Rooms.Add(MainRoomName, new ChatRoom(null, MainRoomName, MainRoomTopic, 
+            m_Rooms.Add(MainRoomName, new ChatRoom(null, MainRoomName, MainRoomTopic,
                                                    isEncrypted: false, isGlobal: true));
 
             // Create TCP listener socket.
@@ -161,7 +162,7 @@ namespace Mikejzx.ChatServer
             Console.WriteLine($"Server is listening on 127.0.0.1:{ChatConstants.ServerPort}");
 
             // Listen for incoming connections.
-            while(true)
+            while (true)
             {
                 TcpClient client = listener.AcceptTcpClient();
                 ProcessClient(client);
@@ -209,7 +210,7 @@ namespace Mikejzx.ChatServer
 
         internal ChatRoom? CreateRoom(ChatServerClient owner, string name, string topic, bool encrypted)
         {
-            lock(roomSync)
+            lock (roomSync)
             {
                 // Room name already taken.
                 if (m_Rooms.ContainsKey(name))
@@ -237,20 +238,7 @@ namespace Mikejzx.ChatServer
                 }
 
                 // Add the owner to the room automatically.
-                owner.Rooms.Add(room);
-
-                // Inform owner that they joined the room (automatically).
-                using (Packet packet = new Packet(PacketType.ServerClientRoomJoin))
-                {
-                    packet.Write(room.name);
-                    packet.Write(owner.ToString());
-
-                    lock (owner.sendSync)
-                    {
-                        packet.WriteToStream(owner.Writer);
-                        owner.Writer.Flush();
-                    }
-                }
+                AddClientToRoom(owner, room);
 
                 return room;
             }
@@ -258,7 +246,7 @@ namespace Mikejzx.ChatServer
 
         internal bool DeleteRoom(ChatRoom room)
         {
-            lock(roomSync)
+            lock (roomSync)
             {
                 // Remove the room from all clients.
                 EnumerateClients((ChatServerClient client) =>
@@ -293,30 +281,9 @@ namespace Mikejzx.ChatServer
 
         internal void AddClientToRoom(ChatServerClient client, ChatRoom room)
         {
-            lock(roomSync)
+            lock (roomSync)
             {
-                // Send join message to all other clients in the room.
-                using (Packet packet = new Packet(PacketType.ServerClientRoomJoin))
-                {
-                    packet.Write(room.name);
-                    packet.Write(client.ToString());
-
-                    foreach (ChatServerClient client2 in room.clients)
-                    {
-                        lock(client2.sendSync)
-                        {
-                            packet.WriteToStream(client2.Writer);
-                            client2.Writer.Flush();
-                        }
-                    }
-                }
-
-                // Add join message to the message history.
-                room.Messages.Add(new ChatMessage(ChatMessageType.UserJoinRoom, client.ToString()));
-
-                Console.WriteLine($"'{client}' joined room '{room.name}'");
-
-                // If there is nobody in the room; we become the new owner.
+                // If there is nobody in the room; the client becomes the new owner.
                 if (!room.IsGlobal && room.owner is null)
                 {
                     if (room.clients.Count > 0)
@@ -328,82 +295,22 @@ namespace Mikejzx.ChatServer
                     }
 
                     SetRoomOwner(room, client);
-                } 
+                }
 
                 // Add the client to the room list.
                 //
                 // This comes after the room owner setting so the
                 // non-zero-client warning doesn't trigger.
-                room.clients.Add(client);
+                lock (clientSync)
+                    room.AddClient(client);
 
-                // And add room to client's internal list.
-                lock(clientSync)
-                    client.Rooms.Add(room);
-
-                // Send the current list of clients to the newly-joining
-                // client.  We include the newly joining client to indicate
-                // that they are a part of the room now.
-                using (Packet packet = new Packet(PacketType.ServerClientRoomMembers))
-                {
-                    packet.Write(room.name);
-                    packet.Write(room.clients.Count);
-
-                    foreach (ChatServerClient client2 in room.clients)
-                    {
-                        packet.Write(client2.ToString());
-                    }
-
-                    lock (client.sendSync)
-                    {
-                        packet.WriteToStream(client.Writer);
-                        client.Writer.Flush();
-                    }
-                }
-
-                // Send the current message history to the newly-joining
-                // client.
-                using (Packet packet = new Packet(PacketType.ServerClientRoomMessages))
-                {
-                    packet.Write(room.name);
-                    packet.Write(room.Messages.Count);
-
-                    foreach (ChatMessage message in room.Messages)
-                    {
-                        packet.Write((int)message.type);
-                        packet.Write(message.author);
-
-                        if (message.message is not null)
-                        {
-                            packet.Write(message.message);
-
-                            if (room.isEncrypted && message.type == ChatMessageType.UserMessage)
-                            {
-                                // Include initialisation vector for encrypted
-                                // messages.
-                                if (message.ivString is not null)
-                                    packet.Write(message.ivString);
-                                else
-                                    packet.Write(string.Empty);
-                            }
-                        }
-                        else
-                        {
-                            packet.Write(string.Empty);
-                        }
-                    }
-
-                    lock (client.sendSync)
-                    {
-                        packet.WriteToStream(client.Writer);
-                        client.Writer.Flush();
-                    }
-                }
+                Console.WriteLine($"'{client}' joined room '{room.name}'");
             }
         }
 
         internal void AddClient(ChatServerClient client)
         {
-            lock(clientSync)
+            lock (clientSync)
             {
                 // Send join message to all other clients.
                 using (Packet packet = new Packet(PacketType.ServerClientJoin))
@@ -412,7 +319,7 @@ namespace Mikejzx.ChatServer
 
                     foreach (ChatServerClient client2 in m_Clients.Values)
                     {
-                        lock(client2.sendSync)
+                        lock (client2.sendSync)
                         {
                             packet.WriteToStream(client2.Writer);
                             client2.Writer.Flush();
@@ -422,7 +329,7 @@ namespace Mikejzx.ChatServer
 
                 // Automatically add client to the main room
                 AddClientToRoom(client, m_Rooms[MainRoomName]);
-                
+
                 m_Clients[client.ToString()] = client;
             }
 
@@ -436,7 +343,7 @@ namespace Mikejzx.ChatServer
             room.owner = owner;
 
             // Add room owner change message
-            room.Messages.Add(new ChatMessage(ChatMessageType.RoomOwnerChanged, room.owner.ToString()));
+            room.AddMessage(new ChatMessage(ChatMessageType.RoomOwnerChanged, room.owner.ToString()));
 
             // Inform clients of new ownership
             using (Packet packet = new Packet(PacketType.ServerRoomOwnerChange))
@@ -457,17 +364,17 @@ namespace Mikejzx.ChatServer
 
         internal void RemoveClientFromRoom(ChatServerClient client, ChatRoom room)
         {
-            lock(roomSync)
+            lock (roomSync)
             {
-                // Add leave message to the message history.
-                room.Messages.Add(new ChatMessage(ChatMessageType.UserLeaveRoom, client.ToString()));
-
                 // Remove the client from the room list.
                 room.clients.Remove(client);
 
                 // Remove room from client's list.
-                lock(clientSync)
+                lock (clientSync)
                     client.Rooms.Remove(room);
+
+                // Add leave message to the message history.
+                room.AddMessage(new ChatMessage(ChatMessageType.UserLeaveRoom, client.ToString()));
 
                 // Send leave message to the other clients in the room.
                 using (Packet packet = new Packet(PacketType.ServerClientRoomLeave))
@@ -477,7 +384,7 @@ namespace Mikejzx.ChatServer
 
                     foreach (ChatServerClient client2 in room.clients)
                     {
-                        lock(client2.sendSync)
+                        lock (client2.sendSync)
                         {
                             packet.WriteToStream(client2.Writer);
                             client2.Writer.Flush();
@@ -532,7 +439,7 @@ namespace Mikejzx.ChatServer
 
         internal bool RemoveClient(ChatServerClient client)
         {
-            lock(clientSync)
+            lock (clientSync)
             {
                 // Remove the client from the client list.
                 bool rc = m_Clients.Remove(client.ToString());
@@ -547,7 +454,7 @@ namespace Mikejzx.ChatServer
 
                     foreach (ChatServerClient client2 in m_Clients.Values)
                     {
-                        lock(client2.sendSync)
+                        lock (client2.sendSync)
                         {
                             packet.WriteToStream(client2.Writer);
                             client2.Writer.Flush();
@@ -572,7 +479,7 @@ namespace Mikejzx.ChatServer
                 return false;
 
             // Ensure the nickname is not already taken.
-            lock(clientSync)
+            lock (clientSync)
             {
                 foreach (ChatServerClient client in m_Clients.Values)
                 {

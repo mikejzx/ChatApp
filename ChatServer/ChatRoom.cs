@@ -14,7 +14,7 @@ namespace Mikejzx.ChatServer
         public string topic;
 
         // Users in the room.
-        public List<ChatServerClient> clients = new List<ChatServerClient>();
+        public HashSet<ChatServerClient> clients = new HashSet<ChatServerClient>();
 
         // Whether the room is encrypted.
         //
@@ -25,13 +25,15 @@ namespace Mikejzx.ChatServer
 
         // True if the room is a 'global room' managed by the server.
         private bool m_IsGlobal;
+
         public bool IsGlobal { get => m_IsGlobal; }
 
         // Room message history
         private List<ChatMessage> m_Messages;
+
         public List<ChatMessage> Messages { get => m_Messages; }
 
-        public ChatRoom(ChatServerClient? owner, string name, string topic, bool isEncrypted=false, bool isGlobal=false)
+        public ChatRoom(ChatServerClient? owner, string name, string topic, bool isEncrypted = false, bool isGlobal = false)
         {
             this.owner = owner;
             this.name = name;
@@ -43,19 +45,156 @@ namespace Mikejzx.ChatServer
 
             clients.Clear();
 
-            // Add the owner to the clients list.
             if (owner is not null)
             {
-                clients.Add(owner);
-
-                Messages.Add(new ChatMessage(ChatMessageType.RoomCreated, owner.Nickname));
+                // Append room creation message.
+                m_Messages.Add(new ChatMessage(ChatMessageType.RoomCreated, owner.Nickname));
 
                 // Append current topic message.
                 if (!string.IsNullOrEmpty(topic))
-                    Messages.Add(new ChatMessage(ChatMessageType.RoomTopicSet, owner.Nickname, topic));
+                    m_Messages.Add(new ChatMessage(ChatMessageType.RoomTopicSet, owner.Nickname, topic));
+            }
+        }
 
-                // Append owner join message
-                Messages.Add(new ChatMessage(ChatMessageType.UserJoinRoom, owner.Nickname));
+        // Add a client to the room
+        public void AddClient(ChatServerClient client)
+        {
+            if (clients.Contains(client))
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Client '{client}' already exists in room '{name}'");
+                Console.ResetColor();
+                return;
+            }
+
+            // Add join message to the message history.
+            ChatMessage msg = new ChatMessage(ChatMessageType.UserJoinRoom, client.ToString());
+            AddMessage(msg);
+
+            clients.Add(client);
+
+            // And add room to client's internal list.
+            client.Rooms.Add(this);
+
+            // Send join message to all other clients in the room.
+            using (Packet packet = new Packet(PacketType.ServerClientRoomJoin))
+            {
+                packet.Write(this.name);
+                packet.Write(client.ToString());
+
+                foreach (ChatServerClient client2 in this.clients)
+                {
+                    lock (client2.sendSync)
+                    {
+                        packet.WriteToStream(client2.Writer);
+                        client2.Writer.Flush();
+                    }
+                }
+            }
+
+            // Send the current list of clients to the newly-joining
+            // client.  We include the newly joining client to indicate
+            // that they are a part of the room now.
+            using (Packet packet = new Packet(PacketType.ServerClientRoomMembers))
+            {
+                packet.Write(this.name);
+                packet.Write(this.clients.Count);
+
+                foreach (ChatServerClient client2 in this.clients)
+                {
+                    packet.Write(client2.ToString());
+                }
+
+                lock (client.sendSync)
+                {
+                    packet.WriteToStream(client.Writer);
+                    client.Writer.Flush();
+                }
+            }
+
+            // Send the current message history to the newly-joining
+            // client.
+            using (Packet packet = new Packet(PacketType.ServerClientRoomMessages))
+            {
+                packet.Write(this.name);
+                packet.Write(this.Messages.Count);
+
+                foreach (ChatMessage message in this.Messages)
+                {
+                    packet.Write((int)message.type);
+                    packet.Write(message.author);
+
+                    if (message.message is not null)
+                    {
+                        packet.Write(message.message);
+
+                        if (this.isEncrypted && message.type == ChatMessageType.UserMessage)
+                        {
+                            // Include initialisation vector for encrypted
+                            // messages.
+                            if (message.ivString is not null)
+                                packet.Write(message.ivString);
+                            else
+                                packet.Write(string.Empty);
+                        }
+                    }
+                    else
+                    {
+                        packet.Write(string.Empty);
+                    }
+                }
+
+                lock (client.sendSync)
+                {
+                    packet.WriteToStream(client.Writer);
+                    client.Writer.Flush();
+                }
+            }
+        }
+
+        // Add a message to the room.
+        public void AddMessage(ChatMessage message)
+        {
+            Messages.Add(message);
+
+            // Send the message back to everyone in the room
+            using (Packet packet = new Packet(PacketType.ServerRoomMessageReceived))
+            {
+                // Write the room name
+                packet.Write(this.name);
+
+                // Write message data.
+                packet.Write((int)message.type);
+                packet.Write(message.author);
+
+                // Send message string
+                if (message.message is not null)
+                {
+                    packet.Write(message.message);
+
+                    if (this.isEncrypted && message.type == ChatMessageType.UserMessage)
+                    {
+                        // Include initialisation vector for encrypted messages.
+                        if (message.ivString is not null)
+                            packet.Write(message.ivString);
+                        else
+                            packet.Write(string.Empty);
+                    }
+                }
+                else
+                {
+                    packet.Write(string.Empty);
+                }
+
+                // Send the message to all clients who are in the room.
+                foreach (ChatServerClient client in this.clients)
+                {
+                    lock (client.sendSync)
+                    {
+                        packet.WriteToStream(client.Writer);
+                        client.Writer.Flush();
+                    }
+                }
             }
         }
     }
